@@ -79,6 +79,7 @@ final class BackupDownloader
         // it when the size is actually known: a wrong Content-Length would truncate the download.
         if ($backup->getSize() > 0) {
             $response->headers->set('Content-Length', (string) $backup->getSize());
+            $response->headers->set('X-Backup-Size', (string) $backup->getSize());
         }
 
         return $response;
@@ -268,6 +269,11 @@ final class BackupDownloader
         // download still works, just without progress.
         if (null !== $size) {
             $response->headers->set('Content-Length', (string) $size);
+
+            // Same value in a custom header: some servers/proxies drop Content-Length on a
+            // streamed (chunked) response, which leaves the on-page progress bar without a total.
+            // A custom header is passed through untouched, so the bar still shows exact percentages.
+            $response->headers->set('X-Backup-Size', (string) $size);
         }
 
         // Tell nginx not to buffer the response, otherwise it would collect the whole ZIP

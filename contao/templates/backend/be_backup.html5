@@ -189,7 +189,8 @@
 
     var writable;
     try {
-      var total = Number(resp.headers.get('content-length')) || 0;
+      // Prefer our own header: some servers drop Content-Length on a streamed (chunked) response.
+      var total = Number(resp.headers.get('x-backup-size') || resp.headers.get('content-length')) || 0;
       writable = await handle.createWritable();
       var reader = resp.body.getReader();
       var received = 0;

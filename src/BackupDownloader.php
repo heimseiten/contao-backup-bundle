@@ -1,0 +1,284 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Heimseiten\ContaoBackupBundle;
+
+use Contao\CoreBundle\Doctrine\Backup\Backup;
+use Contao\CoreBundle\Doctrine\Backup\BackupManager;
+use Symfony\Component\HttpFoundation\HeaderUtils;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
+use ZipStream\CompressionMethod;
+use ZipStream\OperationMode;
+use ZipStream\ZipStream;
+
+/**
+ * Builds the download responses for the "Sicherung" backend module.
+ *
+ * The file/full archives are streamed straight to the browser with ZipStream: no temporary
+ * ZIP is ever written to disk and no whole file is held in memory, so even multi-GB sites
+ * download with a small memory_limit. Because bytes flow continuously from the first moment,
+ * the web server's read timeout (the usual wall for "build first, then send") is never hit.
+ */
+final class BackupDownloader
+{
+    /**
+     * Files and folders that make up a full file backup. Some may not exist in
+     * every installation - missing paths are skipped silently.
+     */
+    public const PATHS = [
+        'composer.json',
+        'composer.lock',
+        'config',
+        'contao',
+        'src',
+        'templates',
+        'translations',
+        'migrations',
+        'system/config/localconfig.php',
+        'files',
+    ];
+
+    public function __construct(
+        private readonly BackupManager $backupManager,
+        private readonly string $projectDir,
+    ) {
+    }
+
+    /**
+     * Database only: Contao's own backup (gzip SQL, also stored in var/backups),
+     * streamed as a download.
+     */
+    public function createDatabaseResponse(): Response
+    {
+        $this->liftTimeLimit();
+
+        $backup = $this->createDatabaseBackup();
+        $stream = $this->backupManager->readStream($backup);
+
+        $response = new StreamedResponse(function () use ($stream): void {
+            $this->flushOutputBuffers();
+
+            if (\is_resource($stream)) {
+                fpassthru($stream);
+                fclose($stream);
+            }
+        });
+
+        $response->headers->set('Content-Type', 'application/gzip');
+        $response->headers->set(
+            'Content-Disposition',
+            HeaderUtils::makeDisposition(HeaderUtils::DISPOSITION_ATTACHMENT, $backup->getFilename()),
+        );
+
+        // Known size up front, so a progress bar can show exact percentages here too. Only set
+        // it when the size is actually known: a wrong Content-Length would truncate the download.
+        if ($backup->getSize() > 0) {
+            $response->headers->set('Content-Length', (string) $backup->getSize());
+        }
+
+        return $response;
+    }
+
+    /**
+     * Files only: the relevant files/folders streamed into a ZIP on the fly.
+     */
+    public function createFilesResponse(): Response
+    {
+        $this->liftTimeLimit();
+
+        $size = $this->computeZipSize(null);
+
+        $response = new StreamedResponse(function (): void {
+            $this->flushOutputBuffers();
+
+            $zip = $this->openZipStream();
+            $this->addProjectFiles($zip);
+            $zip->finish();
+        });
+
+        return $this->prepareZipResponse($response, 'files-backup__'.date('YmdHis').'.zip', $size);
+    }
+
+    /**
+     * Everything in one streamed ZIP: the database backup (under database/) plus the files.
+     */
+    public function createFullResponse(): Response
+    {
+        $this->liftTimeLimit();
+
+        // Create the database backup BEFORE streaming starts: should it fail, the user still
+        // gets a clean error page (nothing has been sent yet).
+        $backup = $this->createDatabaseBackup();
+        $size = $this->computeZipSize($backup);
+
+        $response = new StreamedResponse(function () use ($backup): void {
+            $this->flushOutputBuffers();
+
+            $zip = $this->openZipStream();
+
+            $stream = $this->backupManager->readStream($backup);
+
+            if (\is_resource($stream)) {
+                $zip->addFileFromStream('database/'.$backup->getFilename(), $stream);
+                fclose($stream);
+            }
+
+            $this->addProjectFiles($zip);
+            $zip->finish();
+        });
+
+        return $this->prepareZipResponse($response, 'full-backup__'.date('YmdHis').'.zip', $size);
+    }
+
+    private function createDatabaseBackup(): Backup
+    {
+        $config = $this->backupManager->createCreateConfig();
+        $this->backupManager->create($config);
+
+        return $config->getBackup();
+    }
+
+    /**
+     * A ZipStream that writes straight to the output buffer and stores files without
+     * re-compression: the media in files/ is already compressed, so deflating it again only
+     * burns time for virtually no size gain. The HTTP headers are sent via the Symfony
+     * Response, so ZipStream must not send its own.
+     */
+    private function openZipStream(OperationMode $operationMode = OperationMode::NORMAL, $outputStream = null): ZipStream
+    {
+        return new ZipStream(
+            operationMode: $operationMode,
+            outputStream: $outputStream,
+            sendHttpHeaders: false,
+            defaultCompressionMethod: CompressionMethod::STORE,
+            flushOutput: true,
+        );
+    }
+
+    /**
+     * Computes the exact byte size of the ZIP up front so we can send a Content-Length and the
+     * browser shows a real download progress bar. Uses ZipStream's "simulate" pass, which only
+     * stats each file (no contents are read); the result is byte-exact because we pack with
+     * STORE. Best effort: any hiccup returns null and the download simply streams without a
+     * progress bar. Note: the size is taken just before the download starts - if a file changes
+     * size during the (possibly long) download, the archive may end up truncated; just retry.
+     */
+    private function computeZipSize(?Backup $backup): ?int
+    {
+        $sink = fopen('php://temp', 'w+b');
+
+        if (!\is_resource($sink)) {
+            return null;
+        }
+
+        $placeholder = null;
+
+        try {
+            $zip = $this->openZipStream(OperationMode::SIMULATE_LAX, $sink);
+
+            if (null !== $backup) {
+                // Without a reliable DB size we cannot predict the exact ZIP size; better no
+                // Content-Length (no progress bar) than a wrong one that truncates the download.
+                if ($backup->getSize() <= 0) {
+                    return null;
+                }
+
+                // The DB stream's size is known (getSize), so the placeholder is never read.
+                $placeholder = fopen('php://temp', 'rb');
+                $zip->addFileFromStream(
+                    'database/'.$backup->getFilename(),
+                    $placeholder,
+                    exactSize: $backup->getSize(),
+                );
+            }
+
+            $this->addProjectFiles($zip);
+            $size = $zip->finish();
+
+            return $size > 0 ? $size : null;
+        } catch (\Throwable) {
+            return null;
+        } finally {
+            if (\is_resource($placeholder)) {
+                fclose($placeholder);
+            }
+
+            fclose($sink);
+        }
+    }
+
+    private function addProjectFiles(ZipStream $zip): void
+    {
+        foreach (self::PATHS as $relativePath) {
+            $absolutePath = $this->projectDir.'/'.$relativePath;
+
+            if (is_file($absolutePath)) {
+                $zip->addFileFromPath($relativePath, $absolutePath);
+            } elseif (is_dir($absolutePath)) {
+                $this->addDirectory($zip, $absolutePath, $relativePath);
+            }
+        }
+    }
+
+    private function addDirectory(ZipStream $zip, string $absoluteDir, string $relativeDir): void
+    {
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($absoluteDir, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::SELF_FIRST,
+        );
+
+        foreach ($iterator as $item) {
+            // Never follow symlinks: they could point outside the project (e.g. a planted
+            // files/link -> /etc/passwd) and have no place in a site backup.
+            if ($item->isLink()) {
+                continue;
+            }
+
+            if ($item->isFile() && $item->isReadable()) {
+                $localPath = $relativeDir.'/'.substr($item->getPathname(), \strlen($absoluteDir) + 1);
+                $zip->addFileFromPath($localPath, $item->getPathname());
+            }
+        }
+    }
+
+    private function prepareZipResponse(StreamedResponse $response, string $filename, ?int $size = null): Response
+    {
+        $response->headers->set('Content-Type', 'application/zip');
+        $response->headers->set(
+            'Content-Disposition',
+            HeaderUtils::makeDisposition(HeaderUtils::DISPOSITION_ATTACHMENT, $filename),
+        );
+
+        // A known length lets the browser show a real download progress bar. Without it the
+        // download still works, just without progress.
+        if (null !== $size) {
+            $response->headers->set('Content-Length', (string) $size);
+        }
+
+        // Tell nginx not to buffer the response, otherwise it would collect the whole ZIP
+        // before sending - defeating the streaming and re-introducing the timeout.
+        $response->headers->set('X-Accel-Buffering', 'no');
+
+        return $response;
+    }
+
+    /**
+     * Discard any active output buffers so the binary stream is written straight to the
+     * client instead of piling up in memory (and so stray output cannot corrupt the ZIP).
+     */
+    private function flushOutputBuffers(): void
+    {
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+    }
+
+    private function liftTimeLimit(): void
+    {
+        if (\function_exists('set_time_limit')) {
+            @set_time_limit(0);
+        }
+    }
+}

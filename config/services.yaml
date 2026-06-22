@@ -1,0 +1,11 @@
+services:
+    _defaults:
+        autowire: true
+        autoconfigure: true
+
+    # Public so the (firewall-protected) backend module can fetch it from the container.
+    Heimseiten\ContaoBackupBundle\BackupDownloader:
+        public: true
+        arguments:
+            $backupManager: '@contao.doctrine.backup_manager'
+            $projectDir: '%kernel.project_dir%'

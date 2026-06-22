@@ -1,0 +1,258 @@
+
+<h2 class="sub_headline"><?= $this->headline ?></h2>
+
+<?php if ($this->intro): ?>
+  <div class="tl_message">
+    <p class="tl_info"><?= $this->intro ?></p>
+  </div>
+<?php endif; ?>
+
+<?php if ($this->securityNote): ?>
+  <div class="tl_message">
+    <p class="tl_error"><?= $this->securityNote ?></p>
+  </div>
+<?php endif; ?>
+
+<div class="tl_tbox">
+
+  <?php
+  // Reusable card: a download form, a progress bar (filled by JS) and the contents grouped
+  // under headings ("Datenbank", "Dateien und Ordner").
+  $card = function (string $formSubmit, string $label, array $groups) {
+      ?>
+      <div class="backup-card" style="border:1px solid var(--border,#ddd); border-radius:var(--border-radius,3px); padding:1.2em;">
+        <form method="post" action="<?= $this->action ?>" data-turbo="false" data-backup-form>
+          <input type="hidden" name="FORM_SUBMIT" value="<?= $formSubmit ?>">
+          <input type="hidden" name="REQUEST_TOKEN" value="<?= $this->requestToken ?>">
+          <input type="hidden" name="download_token" value="">
+          <button type="submit" class="tl_submit backup-btn" style="width:100%;"><span class="backup-spinner" style="display:none" aria-hidden="true"></span><span class="backup-label"><?= $label ?></span></button>
+        </form>
+        <div class="backup-progress" hidden>
+          <progress class="backup-progress-bar" max="100" value="0"></progress>
+          <div class="backup-progress-text"></div>
+        </div>
+        <div class="backup-contents">
+          <?php foreach ($groups as $group): ?>
+            <p class="backup-group-title"><?= $group['title'] ?></p>
+            <ul class="backup-list">
+              <?php foreach ($group['items'] as $item): ?>
+                <li><?= $item ?></li>
+              <?php endforeach; ?>
+            </ul>
+          <?php endforeach; ?>
+        </div>
+      </div>
+      <?php
+  };
+
+  // Group the contents under headings: a database group and a files/folders group.
+  $fileItems = array_map(static fn ($p) => '<code>'.$p.'</code>', $this->filePaths);
+  $databaseGroup = ['title' => $this->databaseGroup, 'items' => [$this->databaseItem]];
+  $filesGroup = ['title' => $this->filesGroup, 'items' => $fileItems];
+  ?>
+
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:1.5em; align-items:start; padding:0 1.5em 1.5em;">
+    <?php $card('tl_backup_full', $this->fullLabel, [$databaseGroup, $filesGroup]); ?>
+    <?php $card('tl_backup_files', $this->filesLabel, [$filesGroup]); ?>
+    <?php $card('tl_backup_database', $this->databaseLabel, [$databaseGroup]); ?>
+  </div>
+
+</div>
+
+<style>
+  .backup-spinner {
+    display: inline-block; width: 1em; height: 1em; margin-right: .5em; vertical-align: -.15em;
+    border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; box-sizing: border-box;
+    animation: backup-spin .7s linear infinite;
+  }
+  @keyframes backup-spin { to { transform: rotate(360deg); } }
+  .backup-btn[disabled] { cursor: progress; }
+  .backup-btn[disabled]:not(.backup-active) { opacity: .5; }
+  .backup-progress { margin-top: .9em; }
+  .backup-progress-bar {
+    -webkit-appearance: none; appearance: none; width: 100%; height: .9em; border: 0;
+    border-radius: .45em; background: rgba(127, 127, 127, .25); overflow: hidden;
+  }
+  .backup-progress-bar::-webkit-progress-bar { background: rgba(127, 127, 127, .25); border-radius: .45em; }
+  .backup-progress-bar::-webkit-progress-value { background: #f47c00; border-radius: .45em; }
+  .backup-progress-bar::-moz-progress-bar { background: #f47c00; }
+  .backup-progress-text { font-size: .85em; margin-top: .35em; opacity: .85; }
+  .backup-contents { margin-top: 1em; }
+  .backup-group-title { margin: .9em 0 .25em; font-weight: 600; }
+  .backup-group-title:first-child { margin-top: 0; }
+  .backup-list { margin: 0; padding-left: 1.3em; line-height: 1.7; }
+</style>
+
+<script>
+(function () {
+  // In Chrome/Edge the download is driven by JavaScript and streamed to disk via the File
+  // System Access API, so we can show a real progress bar right here on the page. Other
+  // browsers fall back to a normal browser download (disable buttons, spinner, signal cookie).
+  var BUSY = <?= json_encode($this->busyLabel) ?>;
+  var STARTED = <?= json_encode($this->startedLabel) ?>;
+  var DONE = <?= json_encode($this->doneLabel) ?>;
+  var ERR = <?= json_encode($this->errorLabel) ?>;
+  var COOKIE = 'contao_backup_dl';
+  var forms = document.querySelectorAll('form[data-backup-form]');
+  var buttons = document.querySelectorAll('.backup-btn');
+  var supportsFsa = (typeof window.showSaveFilePicker === 'function');
+
+  function setDisabled(state) { for (var i = 0; i < buttons.length; i++) { buttons[i].disabled = state; } }
+  function readCookie(name) { var m = document.cookie.match('(?:^|; )' + name + '=([^;]*)'); return m ? m[1] : null; }
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function stamp() { var d = new Date(); return '' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()); }
+  function fmt(b) {
+    if (b >= 1073741824) { return (b / 1073741824).toFixed(2) + ' GB'; }
+    if (b >= 1048576) { return (b / 1048576).toFixed(1) + ' MB'; }
+    if (b >= 1024) { return Math.round(b / 1024) + ' KB'; }
+    return b + ' B';
+  }
+  function suggestedName(fs) {
+    var t = stamp();
+    if (fs === 'tl_backup_database') { return 'database-backup__' + t + '.sql.gz'; }
+    if (fs === 'tl_backup_files') { return 'files-backup__' + t + '.zip'; }
+    return 'full-backup__' + t + '.zip';
+  }
+  function pickerTypes(fs) {
+    if (fs === 'tl_backup_database') { return [{ description: 'Gzip', accept: { 'application/gzip': ['.gz'] } }]; }
+    return [{ description: 'ZIP', accept: { 'application/zip': ['.zip'] } }];
+  }
+
+  function ui(form) {
+    var card = form.closest('.backup-card');
+    var btn = form.querySelector('.backup-btn');
+    return {
+      btn: btn,
+      label: btn.querySelector('.backup-label'),
+      spin: btn.querySelector('.backup-spinner'),
+      original: btn.querySelector('.backup-label').textContent,
+      prog: card.querySelector('.backup-progress'),
+      bar: card.querySelector('.backup-progress-bar'),
+      ptext: card.querySelector('.backup-progress-text')
+    };
+  }
+  function begin(u) { setDisabled(true); u.btn.classList.add('backup-active'); u.spin.style.display = 'inline-block'; u.label.textContent = BUSY; }
+  function finish(u, text) {
+    u.spin.style.display = 'none';
+    u.label.textContent = text;
+    setTimeout(function () {
+      u.label.textContent = u.original;
+      u.btn.classList.remove('backup-active');
+      if (u.prog) { u.prog.hidden = true; if (u.bar) { u.bar.value = 0; } u.ptext.textContent = ''; }
+      setDisabled(false);
+    }, 2500);
+  }
+
+  forms.forEach(function (form) {
+    form.addEventListener('submit', function (e) {
+      if (supportsFsa) { e.preventDefault(); fsaDownload(form); }
+      else { nativeDownload(form); }
+    });
+  });
+
+  async function fsaDownload(form) {
+    var fs = form.querySelector('input[name="FORM_SUBMIT"]').value;
+    var action = form.getAttribute('action');
+    var token = form.querySelector('input[name="REQUEST_TOKEN"]').value;
+
+    var handle;
+    try {
+      handle = await window.showSaveFilePicker({ suggestedName: suggestedName(fs), types: pickerTypes(fs) });
+    } catch (err) {
+      if (err && err.name === 'AbortError') { return; } // user cancelled the save dialog
+      // Picker unavailable in this context (e.g. iframe) - hand off to a plain browser download.
+      fallbackToNative(form);
+      return;
+    }
+
+    var u = ui(form);
+    begin(u);
+
+    var resp;
+    try {
+      var fd = new FormData();
+      fd.append('FORM_SUBMIT', fs);
+      fd.append('REQUEST_TOKEN', token);
+      resp = await fetch(action, { method: 'POST', body: fd, credentials: 'same-origin' });
+    } catch (netErr) {
+      // Could not even reach the server - let the browser try the download itself.
+      fallbackToNative(form, u);
+      return;
+    }
+
+    if (!resp.ok || !resp.body) {
+      // The server refused or errored before streaming (e.g. an expired request token). A
+      // browser download would hit the exact same error, so just report it and let the user retry.
+      finish(u, ERR);
+      return;
+    }
+
+    var writable;
+    try {
+      var total = Number(resp.headers.get('content-length')) || 0;
+      writable = await handle.createWritable();
+      var reader = resp.body.getReader();
+      var received = 0;
+      var lastPct = -1;
+
+      u.spin.style.display = 'none';
+      u.prog.hidden = false;
+      if (total) { u.bar.value = 0; } else { u.bar.removeAttribute('value'); }
+
+      while (true) {
+        var chunk = await reader.read();
+        if (chunk.done) { break; }
+        await writable.write(chunk.value);
+        received += chunk.value.length;
+        if (total) {
+          var pct = Math.round(received / total * 100);
+          if (pct !== lastPct) {
+            lastPct = pct;
+            u.bar.value = pct;
+            u.ptext.textContent = pct + ' % · ' + fmt(received) + ' / ' + fmt(total);
+          }
+        } else {
+          u.ptext.textContent = fmt(received);
+        }
+      }
+
+      await writable.close();
+      if (total) { u.bar.value = 100; }
+      u.ptext.textContent = (total ? '100 % · ' : '') + fmt(received);
+      finish(u, DONE);
+    } catch (err) {
+      // Writing to disk failed mid-way (disk full, permission revoked, API glitch). Discard the
+      // half-written file and hand off to a normal browser download instead.
+      try { if (writable) { await writable.abort(); } } catch (ignore) {}
+      fallbackToNative(form, u);
+    }
+  }
+
+  // Last resort for the FSA path: let the browser perform the download the normal way.
+  function fallbackToNative(form, u) {
+    if (u && u.prog) { u.prog.hidden = true; if (u.bar) { u.bar.value = 0; } u.ptext.textContent = ''; }
+    nativeDownload(form); // re-arms the spinner + signal-cookie polling
+    form.submit();        // the browser downloads it itself
+  }
+
+  function nativeDownload(form) {
+    var token = String(Date.now()) + 'x' + Math.random().toString(36).slice(2);
+    var field = form.querySelector('input[name="download_token"]');
+    if (field) { field.value = token; }
+
+    var u = ui(form);
+    begin(u);
+
+    var start = Date.now();
+    var timer = setInterval(function () {
+      var done = readCookie(COOKIE) === token;
+      var timedOut = (Date.now() - start) > 20 * 60 * 1000;
+      if (!done && !timedOut) { return; }
+
+      clearInterval(timer);
+      document.cookie = COOKIE + '=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+      finish(u, done ? STARTED : u.original);
+    }, 400);
+  }
+})();
+</script>

@@ -8,6 +8,7 @@ use Contao\BackendModule;
 use Contao\BackendUser;
 use Contao\CoreBundle\Exception\AccessDeniedException;
 use Contao\CoreBundle\Exception\ResponseException;
+use Contao\CoreBundle\Monolog\ContaoContext;
 use Contao\Environment;
 use Contao\Input;
 use Contao\StringUtil;
@@ -33,16 +34,24 @@ class BackupModule extends BackendModule
 
         // The download forms post the request token, which Contao validates for us.
         $token = (string) Input::post('download_token');
+        $formSubmit = (string) Input::post('FORM_SUBMIT');
 
-        switch (Input::post('FORM_SUBMIT')) {
-            case 'tl_backup_full':
-                throw new ResponseException($this->withDownloadSignal($downloader->createFullResponse(), $token));
+        if (\in_array($formSubmit, ['tl_backup_full', 'tl_backup_database', 'tl_backup_files'], true)) {
+            try {
+                $response = match ($formSubmit) {
+                    'tl_backup_full' => $downloader->createFullResponse(),
+                    'tl_backup_database' => $downloader->createDatabaseResponse(),
+                    'tl_backup_files' => $downloader->createFilesResponse(),
+                };
+            } catch (\Throwable $e) {
+                // Make the reason for a failed backup easy to find (e.g. var/backups not
+                // writable): log it to the Contao log and re-throw so Contao shows the error.
+                $this->logBackupError($formSubmit, $e);
 
-            case 'tl_backup_database':
-                throw new ResponseException($this->withDownloadSignal($downloader->createDatabaseResponse(), $token));
+                throw $e;
+            }
 
-            case 'tl_backup_files':
-                throw new ResponseException($this->withDownloadSignal($downloader->createFilesResponse(), $token));
+            throw new ResponseException($this->withDownloadSignal($response, $token));
         }
 
         System::loadLanguageFile('tl_backup');
@@ -81,5 +90,18 @@ class BackupModule extends BackendModule
         }
 
         return $response;
+    }
+
+    /**
+     * Logs a failed backup download to the Contao log - visible in the back end under
+     * System > System log and in var/logs - so the reason (e.g. var/backups not writable,
+     * a database dump error) is easy to find.
+     */
+    private function logBackupError(string $formSubmit, \Throwable $e): void
+    {
+        System::getContainer()->get('monolog.logger.contao')->error(
+            \sprintf('Backup download "%s" failed: %s', $formSubmit, $e->getMessage()),
+            ['contao' => new ContaoContext(__METHOD__, ContaoContext::ERROR), 'exception' => $e],
+        );
     }
 }

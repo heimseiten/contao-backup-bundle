@@ -89,6 +89,15 @@ JavaScript-Download ab (Speicherdialog nicht verfügbar, Platte voll, Netzfehler
 halbe Datei verworfen und **automatisch auf den normalen Browser-Download umgeschaltet**.
 Nur ein echter Serverfehler (z. B. abgelaufenes Request-Token) wird als Fehler gemeldet.
 
+## Fehlersuche
+
+Schlägt ein Download fehl, wird der Grund protokolliert – im Backend unter
+**System › System-Log** und in `var/logs/`. Häufigste Ursache auf produktiven Servern:
+`var/backups/` ist für den Webserver-Benutzer **nicht beschreibbar** (Contao legt dort
+das Datenbank-Backup ab) → Meldung „Unable to write to backups/…". Abhilfe: Schreibrechte
+auf `var/` bzw. `var/backups/` setzen. (Der reine **Dateien**-Download funktioniert davon
+unabhängig, weil er kein Datenbank-Backup erzeugt.)
+
 ## Installation
 
 ```bash

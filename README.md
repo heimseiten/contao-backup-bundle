@@ -98,6 +98,20 @@ das Datenbank-Backup ab) → Meldung „Unable to write to backups/…". Abhilfe
 auf `var/` bzw. `var/backups/` setzen. (Der reine **Dateien**-Download funktioniert davon
 unabhängig, weil er kein Datenbank-Backup erzeugt.)
 
+**Fortschrittsbalken bleibt leer / nur MB statt Prozent:** Der Server komprimiert die
+Antwort (gzip, z. B. Apache `mod_deflate`). Beim Gzippen einer *gestreamten* Antwort wirft
+der Server die `Content-Length` weg, sodass der Browser die Gesamtgröße nicht kennt. Das
+Bundle erkennt das automatisch und blendet auf der Sicherung-Seite einen Hinweis ein. Für
+den Prozent-Balken die Kompression für den Download abschalten – in `public/.htaccess`:
+
+```apache
+<IfModule mod_setenvif.c>
+    SetEnvIf Query_String "do=backup" no-gzip dont-vary
+</IfModule>
+```
+
+Der Download selbst ist davon nie betroffen, nur die Prozentanzeige.
+
 ## Installation
 
 ```bash

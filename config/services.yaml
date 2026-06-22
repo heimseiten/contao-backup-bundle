@@ -10,3 +10,4 @@ services:
             $backupManager: '@contao.doctrine.backup_manager'
             $projectDir: '%kernel.project_dir%'
             $logger: '@monolog.logger.contao'
+            $requestStack: '@request_stack'

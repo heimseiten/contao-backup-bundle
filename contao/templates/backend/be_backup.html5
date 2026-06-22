@@ -13,6 +13,12 @@
   </div>
 <?php endif; ?>
 
+<?php if ($this->gzipHint): ?>
+  <div class="tl_message" id="backup-gzip-hint" hidden>
+    <p class="tl_info"><?= $this->gzipHint ?></p>
+  </div>
+<?php endif; ?>
+
 <div class="tl_tbox">
 
   <?php
@@ -107,11 +113,15 @@
     if (b >= 1024) { return Math.round(b / 1024) + ' KB'; }
     return b + ' B';
   }
+  function hostSlug() {
+    var h = (location.hostname || '').toLowerCase().replace(/^www\./, '').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    return h ? h + '_' : '';
+  }
   function suggestedName(fs) {
-    var t = stamp();
-    if (fs === 'tl_backup_database') { return 'database-backup__' + t + '.sql.gz'; }
-    if (fs === 'tl_backup_files') { return 'files-backup__' + t + '.zip'; }
-    return 'full-backup__' + t + '.zip';
+    var t = stamp(), h = hostSlug();
+    if (fs === 'tl_backup_database') { return 'database-backup_' + h + t + '.sql.gz'; }
+    if (fs === 'tl_backup_files') { return 'files-backup_' + h + t + '.zip'; }
+    return 'full-backup_' + h + t + '.zip';
   }
   function pickerTypes(fs) {
     if (fs === 'tl_backup_database') { return [{ description: 'Gzip', accept: { 'application/gzip': ['.gz'] } }]; }
@@ -149,6 +159,23 @@
       else { nativeDownload(form); }
     });
   });
+
+  // Before any real download, probe whether a compressing proxy (e.g. Apache mod_deflate) strips
+  // the size headers off a streamed response - then the browser cannot show a percentage. If so,
+  // reveal the hint with the one-line .htaccess fix. Only relevant where the on-page bar runs.
+  async function detectCompression() {
+    var hint = document.getElementById('backup-gzip-hint');
+    if (!hint || !forms[0]) { return; }
+    try {
+      var fd = new FormData();
+      fd.append('FORM_SUBMIT', 'tl_backup_probe');
+      fd.append('REQUEST_TOKEN', forms[0].querySelector('input[name="REQUEST_TOKEN"]').value);
+      var r = await fetch(forms[0].getAttribute('action'), { method: 'POST', body: fd, credentials: 'same-origin', cache: 'no-store' });
+      if (r.body && r.body.cancel) { r.body.cancel(); }
+      if (r.ok && !(r.headers.get('x-backup-size') || r.headers.get('content-length'))) { hint.hidden = false; }
+    } catch (e) { /* probe failed - no hint */ }
+  }
+  if (supportsFsa) { detectCompression(); }
 
   async function fsaDownload(form) {
     var fs = form.querySelector('input[name="FORM_SUBMIT"]').value;

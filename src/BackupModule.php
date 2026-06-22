@@ -36,6 +36,12 @@ class BackupModule extends BackendModule
         $token = (string) Input::post('download_token');
         $formSubmit = (string) Input::post('FORM_SUBMIT');
 
+        // Tiny streamed probe so the front end can detect a compressing proxy (which strips the
+        // size headers) before any real download and show a hint.
+        if ('tl_backup_probe' === $formSubmit) {
+            throw new ResponseException($downloader->createProbeResponse());
+        }
+
         if (\in_array($formSubmit, ['tl_backup_full', 'tl_backup_database', 'tl_backup_files'], true)) {
             try {
                 $response = match ($formSubmit) {
@@ -60,6 +66,7 @@ class BackupModule extends BackendModule
         $this->Template->headline = $lang['headline'];
         $this->Template->intro = $lang['intro'];
         $this->Template->securityNote = $lang['securityNote'];
+        $this->Template->gzipHint = $lang['gzipHint'];
         $this->Template->fullLabel = $lang['downloadFull'];
         $this->Template->databaseLabel = $lang['downloadDatabase'];
         $this->Template->filesLabel = $lang['downloadFiles'];

@@ -9,6 +9,7 @@ use Contao\CoreBundle\Doctrine\Backup\BackupManager;
 use Contao\CoreBundle\Monolog\ContaoContext;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\HeaderUtils;
+use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use ZipStream\CompressionMethod;
@@ -46,6 +47,7 @@ final class BackupDownloader
         private readonly BackupManager $backupManager,
         private readonly string $projectDir,
         private readonly LoggerInterface $logger,
+        private readonly RequestStack $requestStack,
     ) {
     }
 
@@ -72,7 +74,7 @@ final class BackupDownloader
         $response->headers->set('Content-Type', 'application/gzip');
         $response->headers->set(
             'Content-Disposition',
-            HeaderUtils::makeDisposition(HeaderUtils::DISPOSITION_ATTACHMENT, $backup->getFilename()),
+            HeaderUtils::makeDisposition(HeaderUtils::DISPOSITION_ATTACHMENT, $this->filename('database-backup', '.sql.gz')),
         );
 
         // Known size up front, so a progress bar can show exact percentages here too. Only set
@@ -102,7 +104,7 @@ final class BackupDownloader
             $zip->finish();
         });
 
-        return $this->prepareZipResponse($response, 'files-backup__'.date('YmdHis').'.zip', $size);
+        return $this->prepareZipResponse($response, $this->filename('files-backup', '.zip'), $size);
     }
 
     /**
@@ -133,7 +135,7 @@ final class BackupDownloader
             $zip->finish();
         });
 
-        return $this->prepareZipResponse($response, 'full-backup__'.date('YmdHis').'.zip', $size);
+        return $this->prepareZipResponse($response, $this->filename('full-backup', '.zip'), $size);
     }
 
     private function createDatabaseBackup(): Backup
@@ -307,6 +309,50 @@ final class BackupDownloader
                 'exception' => $e,
             ]),
         );
+    }
+
+    /**
+     * A tiny streamed response that lets the front end detect, before any real download, whether
+     * the size headers survive a streamed response. A compressing proxy (e.g. Apache mod_deflate)
+     * strips Content-Length on streamed (chunked) responses, so the browser cannot show a
+     * percentage; this probe carries the same size headers as a real download so the JavaScript
+     * can test for that and show a hint.
+     */
+    public function createProbeResponse(): Response
+    {
+        $size = 32768;
+
+        $response = new StreamedResponse(function () use ($size): void {
+            $this->flushOutputBuffers();
+
+            $chunk = str_repeat('0', 8192);
+
+            for ($sent = 0; $sent < $size; $sent += 8192) {
+                echo $chunk;
+                flush();
+            }
+        });
+
+        $response->headers->set('Content-Type', 'application/zip');
+        $response->headers->set('Content-Length', (string) $size);
+        $response->headers->set('X-Backup-Size', (string) $size);
+        $response->headers->set('X-Accel-Buffering', 'no');
+        $response->headers->set('Cache-Control', 'no-store');
+
+        return $response;
+    }
+
+    /**
+     * Builds a download name like "full-backup_example_com_20260622205726.zip": the prefix, the
+     * current host (dots and other separators turned into underscores) and a timestamp.
+     */
+    private function filename(string $prefix, string $extension): string
+    {
+        $host = $this->requestStack->getCurrentRequest()?->getHost() ?? '';
+        $host = preg_replace('/^www\./i', '', $host);
+        $slug = trim((string) preg_replace('/[^a-z0-9]+/i', '_', (string) $host), '_');
+
+        return $prefix.'_'.('' !== $slug ? $slug.'_' : '').date('YmdHis').$extension;
     }
 
     private function liftTimeLimit(): void

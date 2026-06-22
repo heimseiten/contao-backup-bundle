@@ -196,9 +196,17 @@
       var received = 0;
       var lastPct = -1;
 
-      u.spin.style.display = 'none';
       u.prog.hidden = false;
-      if (total) { u.bar.value = 0; } else { u.bar.removeAttribute('value'); }
+      if (total) {
+        // Known size: hide the button spinner and show a real percentage bar.
+        u.spin.style.display = 'none';
+        u.bar.style.display = '';
+        u.bar.value = 0;
+      } else {
+        // No size came through (e.g. a server that strips the length headers): keep the spinner
+        // as the "downloading" indicator and hide the bar instead of showing an empty one.
+        u.bar.style.display = 'none';
+      }
 
       while (true) {
         var chunk = await reader.read();

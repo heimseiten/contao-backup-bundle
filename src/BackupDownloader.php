@@ -6,6 +6,8 @@ namespace Heimseiten\ContaoBackupBundle;
 
 use Contao\CoreBundle\Doctrine\Backup\Backup;
 use Contao\CoreBundle\Doctrine\Backup\BackupManager;
+use Contao\CoreBundle\Monolog\ContaoContext;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\HeaderUtils;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -43,6 +45,7 @@ final class BackupDownloader
     public function __construct(
         private readonly BackupManager $backupManager,
         private readonly string $projectDir,
+        private readonly LoggerInterface $logger,
     ) {
     }
 
@@ -182,6 +185,8 @@ final class BackupDownloader
                 // Without a reliable DB size we cannot predict the exact ZIP size; better no
                 // Content-Length (no progress bar) than a wrong one that truncates the download.
                 if ($backup->getSize() <= 0) {
+                    $this->logProgressBarDisabled('the database backup size could not be determined');
+
                     return null;
                 }
 
@@ -197,8 +202,16 @@ final class BackupDownloader
             $this->addProjectFiles($zip);
             $size = $zip->finish();
 
-            return $size > 0 ? $size : null;
-        } catch (\Throwable) {
+            if ($size <= 0) {
+                $this->logProgressBarDisabled('the computed ZIP size was zero');
+
+                return null;
+            }
+
+            return $size;
+        } catch (\Throwable $e) {
+            $this->logProgressBarDisabled('the ZIP size could not be computed up front: '.$e->getMessage(), $e);
+
             return null;
         } finally {
             if (\is_resource($placeholder)) {
@@ -273,6 +286,21 @@ final class BackupDownloader
         while (ob_get_level() > 0) {
             ob_end_clean();
         }
+    }
+
+    /**
+     * The download itself still works without a Content-Length - only the on-page progress bar
+     * is disabled. Log the reason (Contao log + var/logs) so it is no longer swallowed silently.
+     */
+    private function logProgressBarDisabled(string $reason, ?\Throwable $e = null): void
+    {
+        $this->logger->error(
+            'Backup: on-page progress bar disabled (the download itself still works) - '.$reason.'.',
+            array_filter([
+                'contao' => new ContaoContext(self::class.'::computeZipSize', ContaoContext::ERROR),
+                'exception' => $e,
+            ]),
+        );
     }
 
     private function liftTimeLimit(): void

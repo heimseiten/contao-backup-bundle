@@ -9,3 +9,4 @@ services:
         arguments:
             $backupManager: '@contao.doctrine.backup_manager'
             $projectDir: '%kernel.project_dir%'
+            $logger: '@monolog.logger.contao'

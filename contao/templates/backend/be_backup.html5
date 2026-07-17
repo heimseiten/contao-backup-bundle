@@ -1,6 +1,69 @@
 
 <h2 class="sub_headline"><?= $this->headline ?></h2>
 
+<?php $l = $this->lang; ?>
+
+<?php // ---- Section 1: automatic database backups (retention settings + current list) ---- ?>
+<fieldset class="backup-section" data-backup-section="auto">
+  <legend class="backup-section-legend" data-section-toggle><?= $l['sectionAuto'] ?></legend>
+  <div class="backup-section-body">
+
+    <?php if ($this->settingsMessage): ?>
+      <div class="tl_message"><p class="tl_confirm"><?= $this->settingsMessage ?></p></div>
+    <?php endif; ?>
+    <?php if ($this->settingsError): ?>
+      <div class="tl_message"><p class="tl_error"><?= $this->settingsError ?></p></div>
+    <?php endif; ?>
+
+    <div class="tl_message">
+      <p class="tl_info"><?= $l['autoIntro'] ?></p>
+    </div>
+
+    <form method="post" action="<?= $this->action ?>" data-turbo="false" class="backup-settings-form">
+      <input type="hidden" name="FORM_SUBMIT" value="tl_backup_settings">
+      <input type="hidden" name="REQUEST_TOKEN" value="<?= $this->requestToken ?>">
+
+      <label class="backup-settings-field">
+        <span><?= $l['keepMaxLabel'] ?></span>
+        <input type="number" name="keep_max" class="tl_text" min="0" step="1" value="<?= $this->retentionKeepMax ?>" placeholder="<?= $this->retentionDefaultMax ?>">
+      </label>
+      <label class="backup-settings-field">
+        <span><?= $l['keepIntervalsLabel'] ?></span>
+        <input type="text" name="keep_intervals" class="tl_text" autocomplete="off" spellcheck="false" value="<?= $this->retentionIntervals ?>" placeholder="<?= $this->retentionDefaultIntervals ?>">
+      </label>
+
+      <p class="backup-settings-status">
+        <?= null !== $this->retention ? $l['settingsActive'] : $l['settingsStandard'] ?>
+        <?= sprintf($l['settingsDefault'], 'keep_max '.$this->retentionDefaultMax.' · '.$this->retentionDefaultIntervals) ?>
+      </p>
+
+      <div class="backup-settings-buttons">
+        <button type="submit" class="tl_submit"><?= $l['settingsSave'] ?></button>
+        <?php if (null !== $this->retention): ?>
+          <button type="submit" name="settings_reset" value="1" class="tl_submit"><?= $l['settingsReset'] ?></button>
+        <?php endif; ?>
+      </div>
+    </form>
+
+    <p class="backup-group-title"><?= $l['autoListTitle'] ?></p>
+    <?php if (!$this->serverBackups): ?>
+      <p class="restore-explain"><em><?= $l['autoListEmpty'] ?></em></p>
+    <?php else: ?>
+      <ul class="backup-list backup-auto-list">
+        <?php foreach ($this->serverBackups as $backup): ?>
+          <li><code><?= $backup['name'] ?></code> · <?= $backup['date'] ?> · <?= $backup['size'] ?></li>
+        <?php endforeach; ?>
+      </ul>
+    <?php endif; ?>
+
+  </div>
+</fieldset>
+
+<?php // ---- Section 2: manual backup downloads ---- ?>
+<fieldset class="backup-section" data-backup-section="manual">
+  <legend class="backup-section-legend" data-section-toggle><?= $l['sectionManual'] ?></legend>
+  <div class="backup-section-body">
+
 <?php if ($this->intro): ?>
   <div class="tl_message">
     <p class="tl_info"><?= $this->intro ?></p>
@@ -72,9 +135,14 @@
 
 </div>
 
-<?php $l = $this->lang; ?>
+  </div>
+</fieldset>
 
-<h2 class="sub_headline" id="restore" style="margin-top:2em;"><?= $l['restoreHeadline'] ?></h2>
+<?php // ---- Section 3: restore ---- ?>
+<?php $restoreActive = $this->restoreError || $this->restoreResultSteps || $this->archive || $this->archiveError; ?>
+<fieldset class="backup-section" data-backup-section="restore" id="restore"<?= $restoreActive ? ' data-force-open' : '' ?>>
+  <legend class="backup-section-legend" data-section-toggle><?= $l['sectionRestore'] ?></legend>
+  <div class="backup-section-body">
 
 <div class="tl_message">
   <p class="tl_info"><?= $l['restoreIntro'] ?></p>
@@ -113,6 +181,7 @@
           <p class="restore-composer-title"><?= $l['composerTitle'] ?></p>
           <p><?= sprintf($l['composerDiffText'], $this->composerDiff['install'], $this->composerDiff['remove'], $this->composerDiff['change']) ?></p>
           <?php if ($this->managerUrl): ?>
+            <?= $l['composerManagerSteps'] ?>
             <a href="<?= $this->managerUrl ?>" target="_blank" class="tl_submit restore-composer-btn"><?= $l['composerManagerButton'] ?></a>
           <?php else: ?>
             <p class="tl_info"><?= $l['composerNoManager'] ?></p>
@@ -254,6 +323,9 @@
   </div>
 </div>
 
+  </div>
+</fieldset>
+
 <style>
   .backup-spinner {
     display: inline-block; width: 1em; height: 1em; margin-right: .5em; vertical-align: -.15em;
@@ -276,6 +348,27 @@
   .backup-group-title { margin: .9em 0 .25em; font-weight: 600; }
   .backup-group-title:first-child { margin-top: 0; }
   .backup-list { margin: 0; padding-left: 1.3em; line-height: 1.7; }
+
+  /* Collapsible sections */
+  .backup-section {
+    margin: 0 0 1.2em; padding: 0; border: 1px solid var(--border, #ddd);
+    border-radius: var(--border-radius, 3px); min-width: 0;
+  }
+  .backup-section-legend {
+    padding: .7em 1em; font-weight: 700; cursor: pointer; user-select: none; width: 100%;
+  }
+  .backup-section-legend::before { content: "▾"; display: inline-block; margin-right: .55em; transition: transform .15s; }
+  .backup-section--zu .backup-section-legend::before { transform: rotate(-90deg); }
+  .backup-section--zu .backup-section-body { display: none; }
+  .backup-section-body { padding: .4em 1em 1em; }
+  .backup-section-body > .tl_tbox { padding-top: .2em; }
+  .backup-settings-form { max-width: 46em; }
+  .backup-settings-field { display: block; margin: .8em 0; }
+  .backup-settings-field > span { display: block; margin-bottom: .3em; line-height: 1.45; }
+  .backup-settings-field input { width: 100%; box-sizing: border-box; }
+  .backup-settings-status { margin: .6em 0; opacity: .8; line-height: 1.5; }
+  .backup-settings-buttons { display: flex; gap: .6em; flex-wrap: wrap; margin-bottom: 1em; }
+  .backup-auto-list { list-style: none; padding-left: 0; }
 
   /* Download method choice */
   .backup-dlmode {
@@ -325,6 +418,7 @@
   .restore-composer { margin: 1em 0; padding: .9em 1.1em; border: 1px solid #b58900; border-radius: var(--border-radius, 3px); background: rgba(181, 137, 0, .08); }
   .restore-composer-title { margin: 0 0 .4em; font-weight: 700; }
   .restore-composer-btn { display: inline-block; margin-top: .4em; text-decoration: none; }
+  .restore-composer-steps { margin: .5em 0 .3em 1.4em; padding: 0; line-height: 1.7; }
 </style>
 
 <script>
@@ -566,6 +660,28 @@
 
 <script>
 (function () {
+  // ---- Collapsible sections -----------------------------------------------------------
+  // The open/closed state of the three sections is remembered per browser. A section with
+  // fresh results (data-force-open) always opens, so messages are never hidden.
+  var SECTION_KEY = 'contao_backup_sections';
+
+  function readSections() {
+    try { return JSON.parse(localStorage.getItem(SECTION_KEY) || '{}') || {}; } catch (e) { return {}; }
+  }
+
+  document.querySelectorAll('.backup-section').forEach(function (section) {
+    var name = section.getAttribute('data-backup-section');
+    var closed = readSections()[name] === true && !section.hasAttribute('data-force-open');
+    section.classList.toggle('backup-section--zu', closed);
+
+    section.querySelector('[data-section-toggle]').addEventListener('click', function () {
+      var nowClosed = section.classList.toggle('backup-section--zu');
+      var state = readSections();
+      state[name] = nowClosed;
+      try { localStorage.setItem(SECTION_KEY, JSON.stringify(state)); } catch (e) {}
+    });
+  });
+
   // ---- Restore section ----------------------------------------------------------------
   var UPLOAD_BUSY = <?= json_encode($this->lang['uploadBusy']) ?>;
   var UPLOAD_ERROR = <?= json_encode($this->lang['uploadError']) ?>;

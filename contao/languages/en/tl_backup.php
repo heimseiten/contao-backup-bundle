@@ -18,6 +18,26 @@ $GLOBALS['TL_LANG']['tl_backup']['started']          = '✓ Download started';
 $GLOBALS['TL_LANG']['tl_backup']['done']             = '✓ Done';
 $GLOBALS['TL_LANG']['tl_backup']['error']            = 'Error – please try again';
 
+// Sections
+$GLOBALS['TL_LANG']['tl_backup']['sectionAuto']      = 'Automatic database backups';
+$GLOBALS['TL_LANG']['tl_backup']['sectionManual']    = 'Manual backup (files and database)';
+$GLOBALS['TL_LANG']['tl_backup']['sectionRestore']   = 'Restore';
+
+// Automatic database backups (retention)
+$GLOBALS['TL_LANG']['tl_backup']['autoIntro']        = 'Contao automatically stores database backups in <code>var/backups</code> (e.g. before updates via the Contao Manager or on <code>contao:migrate</code>; the "Download database only" button also stores a copy there). Configure how many of them are kept – see the <a href="https://docs.contao.org/5.x/manual/en/cli/database-backups/" target="_blank" rel="noopener">Contao manual</a>.';
+$GLOBALS['TL_LANG']['tl_backup']['keepMaxLabel']     = 'Maximum number of backups to keep (0 = keep all)';
+$GLOBALS['TL_LANG']['tl_backup']['keepIntervalsLabel'] = 'Additionally keep the oldest backup per period (comma-separated, e.g. "1D,7D,14D,1M" for 1/7/14 days and 1 month; empty = none)';
+$GLOBALS['TL_LANG']['tl_backup']['settingsDefault']  = 'Default (without a custom setting): %s';
+$GLOBALS['TL_LANG']['tl_backup']['settingsActive']   = 'Custom setting active.';
+$GLOBALS['TL_LANG']['tl_backup']['settingsStandard'] = 'The Contao default configuration applies (or your config.yaml).';
+$GLOBALS['TL_LANG']['tl_backup']['settingsSave']     = 'Save settings';
+$GLOBALS['TL_LANG']['tl_backup']['settingsReset']    = 'Reset to default';
+$GLOBALS['TL_LANG']['tl_backup']['settingsSaved']    = 'Retention settings saved – they apply from the next automatically created backup on.';
+$GLOBALS['TL_LANG']['tl_backup']['settingsResetDone'] = 'Custom retention setting removed – the Contao configuration applies again.';
+$GLOBALS['TL_LANG']['tl_backup']['settingsInvalid']  = 'Settings not saved: %s';
+$GLOBALS['TL_LANG']['tl_backup']['autoListTitle']    = 'Currently stored database backups';
+$GLOBALS['TL_LANG']['tl_backup']['autoListEmpty']    = 'There are currently no database backups in var/backups.';
+
 // Restore
 $GLOBALS['TL_LANG']['tl_backup']['restoreHeadline']       = 'Restore';
 $GLOBALS['TL_LANG']['tl_backup']['restoreIntro']          = 'Restore a previously created backup here – either a database backup stored on the server (var/backups) or a downloaded backup archive (ZIP). This also lets you move a backup into another/fresh Contao installation, as long as this bundle is installed there.';
@@ -71,6 +91,7 @@ $GLOBALS['TL_LANG']['tl_backup']['composerTitle']         = 'Still to do: align 
 $GLOBALS['TL_LANG']['tl_backup']['composerDiffText']      = 'The restored composer.lock differs from the installed packages (%d to install, %d to remove, %d version changes). Run <strong>"composer install"</strong> to get exactly the source package state – manager hints like "manually removed" are normal (leftovers of this installation).';
 $GLOBALS['TL_LANG']['tl_backup']['composerDiffNone']      = '✓ The installed packages already match the restored composer.lock.';
 $GLOBALS['TL_LANG']['tl_backup']['composerManagerButton'] = 'Open the Contao Manager';
+$GLOBALS['TL_LANG']['tl_backup']['composerManagerSteps']  = '<ol class="restore-composer-steps"><li>Open the Contao Manager and click <strong>"System maintenance"</strong> (top right)</li><li>Scroll to the <strong>"Composer dependencies"</strong> section</li><li>Click <strong>"Run installer"</strong> – this executes "composer install" with the restored composer.lock (do not add or apply anything on the packages page!)</li><li>Then reload the Contao Manager once – the packages are shown normally again</li></ol>';
 $GLOBALS['TL_LANG']['tl_backup']['composerNoManager']     = 'No Contao Manager found in this installation – run "composer install" on the console or install the manager (put contao-manager.phar as public/contao-manager.phar.php).';
 $GLOBALS['TL_LANG']['tl_backup']['healthChecking']        = 'Checking whether the website responds …';
 $GLOBALS['TL_LANG']['tl_backup']['healthOk']              = '✓ Website responds (HTTP %s).';

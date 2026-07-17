@@ -18,6 +18,14 @@ services:
         arguments:
             $projectDir: '%kernel.project_dir%'
 
+    # Makes the retention of automatic database backups configurable in the back end.
+    Heimseiten\ContaoBackupBundle\ConfigurableRetentionPolicy:
+        public: true
+        decorates: contao.doctrine.backup.retention_policy
+        arguments:
+            $inner: '@.inner'
+            $projectDir: '%kernel.project_dir%'
+
     Heimseiten\ContaoBackupBundle\BackupRestorer:
         public: true
         arguments:

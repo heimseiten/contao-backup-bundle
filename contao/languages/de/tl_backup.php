@@ -18,6 +18,26 @@ $GLOBALS['TL_LANG']['tl_backup']['started']          = '✓ Download gestartet';
 $GLOBALS['TL_LANG']['tl_backup']['done']             = '✓ Fertig';
 $GLOBALS['TL_LANG']['tl_backup']['error']            = 'Fehler – bitte erneut versuchen';
 
+// Abschnitte
+$GLOBALS['TL_LANG']['tl_backup']['sectionAuto']      = 'Automatische Datenbank-Backups';
+$GLOBALS['TL_LANG']['tl_backup']['sectionManual']    = 'Manuelle Sicherung (Dateien und Datenbank)';
+$GLOBALS['TL_LANG']['tl_backup']['sectionRestore']   = 'Wiederherstellung';
+
+// Automatische Datenbank-Backups (Aufbewahrung)
+$GLOBALS['TL_LANG']['tl_backup']['autoIntro']        = 'Contao legt in <code>var/backups</code> automatisch Datenbank-Backups an (z. B. vor Updates über den Contao Manager oder bei <code>contao:migrate</code>; auch der Download „Nur Datenbank" speichert dort eine Kopie). Hier stellst du ein, wie viele davon aufbewahrt werden – siehe <a href="https://docs.contao.org/5.x/manual/de/cli/datenbank-backups/" target="_blank" rel="noopener">Contao-Handbuch</a>.';
+$GLOBALS['TL_LANG']['tl_backup']['keepMaxLabel']     = 'Maximale Anzahl aufbewahrter Backups (0 = alle behalten)';
+$GLOBALS['TL_LANG']['tl_backup']['keepIntervalsLabel'] = 'Zusätzlich behalten: das jeweils älteste Backup je Zeitraum (kommagetrennt, z. B. „1D,7D,14D,1M" für 1/7/14 Tage und 1 Monat; leer = keine)';
+$GLOBALS['TL_LANG']['tl_backup']['settingsDefault']  = 'Standard (ohne eigene Einstellung): %s';
+$GLOBALS['TL_LANG']['tl_backup']['settingsActive']   = 'Eigene Einstellung aktiv.';
+$GLOBALS['TL_LANG']['tl_backup']['settingsStandard'] = 'Es gilt die Contao-Standardeinstellung (bzw. deine config.yaml).';
+$GLOBALS['TL_LANG']['tl_backup']['settingsSave']     = 'Einstellungen speichern';
+$GLOBALS['TL_LANG']['tl_backup']['settingsReset']    = 'Auf Standard zurücksetzen';
+$GLOBALS['TL_LANG']['tl_backup']['settingsSaved']    = 'Aufbewahrungs-Einstellungen gespeichert – sie gelten ab dem nächsten automatisch angelegten Backup.';
+$GLOBALS['TL_LANG']['tl_backup']['settingsResetDone'] = 'Eigene Aufbewahrungs-Einstellung entfernt – es gilt wieder die Contao-Konfiguration.';
+$GLOBALS['TL_LANG']['tl_backup']['settingsInvalid']  = 'Einstellungen nicht gespeichert: %s';
+$GLOBALS['TL_LANG']['tl_backup']['autoListTitle']    = 'Aktuell gespeicherte Datenbank-Backups';
+$GLOBALS['TL_LANG']['tl_backup']['autoListEmpty']    = 'Aktuell liegen keine Datenbank-Backups in var/backups.';
+
 // Wiederherstellung
 $GLOBALS['TL_LANG']['tl_backup']['restoreHeadline']       = 'Wiederherstellung';
 $GLOBALS['TL_LANG']['tl_backup']['restoreIntro']          = 'Spiele hier eine früher erstellte Sicherung wieder ein – entweder ein Datenbank-Backup, das auf dem Server liegt (var/backups), oder ein heruntergeladenes Backup-Archiv (ZIP). Damit lässt sich ein Backup auch in eine andere/frische Contao-Installation übertragen, wenn dieses Bundle dort installiert ist.';
@@ -71,6 +91,7 @@ $GLOBALS['TL_LANG']['tl_backup']['composerTitle']         = 'Noch zu erledigen: 
 $GLOBALS['TL_LANG']['tl_backup']['composerDiffText']      = 'Das eingespielte composer.lock weicht vom installierten Stand ab (%d zu installieren, %d zu entfernen, %d Versionswechsel). Führe <strong>„composer install"</strong> aus, um exakt den Paket-Stand der Quelle herzustellen – Hinweise im Manager wie „manuell entfernt" sind dabei normal (Alt-Reste dieser Installation).';
 $GLOBALS['TL_LANG']['tl_backup']['composerDiffNone']      = '✓ Die installierten Pakete entsprechen bereits dem eingespielten composer.lock.';
 $GLOBALS['TL_LANG']['tl_backup']['composerManagerButton'] = 'Contao Manager öffnen';
+$GLOBALS['TL_LANG']['tl_backup']['composerManagerSteps']  = '<ol class="restore-composer-steps"><li>Contao Manager öffnen und oben rechts auf <strong>„Systemwartung"</strong> klicken</li><li>Zum Abschnitt <strong>„Composer-Abhängigkeiten"</strong> scrollen</li><li><strong>„Installer ausführen"</strong> klicken – das führt „composer install" mit dem eingespielten composer.lock aus (nichts auf der Paketseite hinzufügen oder anwenden!)</li><li>Danach den Contao Manager einmal neu laden – die Pakete werden wieder normal angezeigt</li></ol>';
 $GLOBALS['TL_LANG']['tl_backup']['composerNoManager']     = 'Kein Contao Manager in dieser Installation gefunden – „composer install" über die Konsole ausführen oder den Manager installieren (contao-manager.phar als public/contao-manager.phar.php ablegen).';
 $GLOBALS['TL_LANG']['tl_backup']['healthChecking']        = 'Prüfe, ob die Website antwortet …';
 $GLOBALS['TL_LANG']['tl_backup']['healthOk']              = '✓ Website antwortet (HTTP %s).';

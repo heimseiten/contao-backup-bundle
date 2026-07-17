@@ -41,6 +41,10 @@ class BackupModule extends BackendModule
 
     private RestoreResult|null $restoreResult = null;
 
+    private string|null $settingsMessage = null;
+
+    private string|null $settingsError = null;
+
     protected function compile(): void
     {
         if (!BackendUser::getInstance()->isAdmin) {
@@ -87,6 +91,7 @@ class BackupModule extends BackendModule
             'tl_backup_discard' => $this->handleDiscard($store),
             'tl_backup_restore_server' => $this->handleServerRestore(),
             'tl_backup_restore_archive' => $this->handleArchiveRestore($store),
+            'tl_backup_settings' => $this->handleRetentionSettings(),
             default => null,
         };
 
@@ -283,6 +288,32 @@ class BackupModule extends BackendModule
     }
 
     /**
+     * Saves (or resets) how many/which automatic database backups are kept.
+     */
+    private function handleRetentionSettings(): void
+    {
+        $lang = $this->loadLanguage();
+        $policy = System::getContainer()->get(ConfigurableRetentionPolicy::class);
+
+        if (null !== Input::post('settings_reset')) {
+            $policy->clearSettings();
+            $this->settingsMessage = $lang['settingsResetDone'];
+
+            return;
+        }
+
+        $keepMax = max(0, (int) Input::post('keep_max'));
+        $intervals = array_values(array_filter(array_map('trim', explode(',', (string) Input::post('keep_intervals')))));
+
+        try {
+            $policy->saveSettings($keepMax, $intervals);
+            $this->settingsMessage = $lang['settingsSaved'];
+        } catch (\Throwable $e) {
+            $this->settingsError = \sprintf($lang['settingsInvalid'], $e->getMessage());
+        }
+    }
+
+    /**
      * The typed confirmation word is checked SERVER-side; both languages are accepted.
      */
     private function confirmWordValid(): bool
@@ -325,6 +356,16 @@ class BackupModule extends BackendModule
         $this->Template->composerDiff = $this->restoreResult?->composerDiff;
         $this->Template->managerUrl = is_file($this->projectDir().'/public/contao-manager.phar.php') ? '/contao-manager.phar.php' : null;
         $this->Template->targetContaoVersion = $restorer->installedContaoVersion();
+
+        // Retention settings for the automatic database backups
+        $retention = System::getContainer()->get(ConfigurableRetentionPolicy::class)->settings();
+        $this->Template->retention = $retention;
+        $this->Template->retentionKeepMax = null !== $retention ? (string) $retention['keepMax'] : '';
+        $this->Template->retentionIntervals = null !== $retention ? implode(',', $retention['keepIntervals']) : '';
+        $this->Template->retentionDefaultMax = (string) ConfigurableRetentionPolicy::DEFAULT_KEEP_MAX;
+        $this->Template->retentionDefaultIntervals = ConfigurableRetentionPolicy::DEFAULT_KEEP_INTERVALS;
+        $this->Template->settingsMessage = $this->settingsMessage;
+        $this->Template->settingsError = $this->settingsError;
 
         $archive = null;
         $archiveError = null;

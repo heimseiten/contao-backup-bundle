@@ -98,6 +98,15 @@ das Voll-ZIP hochladen, einspielen – fertig. `.env`-Werte (`DATABASE_URL`,
 Ziel-Installation. Benutzer/Passwörter entsprechen danach dem Stand des Backups –
 gegebenenfalls neu anmelden (mit den Zugangsdaten aus dem Backup).
 
+**Contao Manager:** Der Restore fasst den Manager nie an – nach einem Restore in
+derselben Installation funktioniert er unverändert. Er ist aber auch **nicht Teil
+des Backups** (`public/` und der Datenordner `contao-manager/` werden bewusst nicht
+gesichert). Hat die **Ziel-Installation** eines Umzugs noch keinen Manager, ihn dort
+einmalig installieren: [`contao-manager.phar`](https://download.contao.org/contao-manager/stable/contao-manager.phar)
+herunterladen und als `public/contao-manager.phar.php` ablegen; beim ersten Öffnen
+ein Manager-Konto anlegen (Manager-Konten sind unabhängig von den
+Backend-Benutzern und stecken nicht im Backup).
+
 ### Weitere Hinweise
 
 - Während des Einspielens ist die Website kurz inkonsistent (Tabellen werden gerade

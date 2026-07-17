@@ -57,6 +57,13 @@
   $filesGroup = ['title' => $this->filesGroup, 'items' => $fileItems];
   ?>
 
+  <?php // Only revealed by JavaScript in browsers that support the on-page (FSA) download. ?>
+  <div class="backup-dlmode" id="backup-dlmode" hidden>
+    <span class="backup-dlmode-label"><?= $this->lang['dlModeLabel'] ?></span>
+    <label><input type="radio" name="backup_dl_mode" value="js"> <?= $this->lang['dlModeJs'] ?></label>
+    <label><input type="radio" name="backup_dl_mode" value="native"> <?= $this->lang['dlModeNative'] ?></label>
+  </div>
+
   <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:1.5em; align-items:start; padding:0 1.5em 1.5em;">
     <?php $card('tl_backup_full', $this->fullLabel, [$databaseGroup, $filesGroup]); ?>
     <?php $card('tl_backup_files', $this->filesLabel, [$filesGroup]); ?>
@@ -234,9 +241,18 @@
   .backup-group-title:first-child { margin-top: 0; }
   .backup-list { margin: 0; padding-left: 1.3em; line-height: 1.7; }
 
+  /* Download method choice */
+  .backup-dlmode {
+    display: flex; flex-wrap: wrap; align-items: center; gap: .4em 1.4em;
+    margin: 0 1.5em 1.3em; padding: .7em 1em;
+    border: 1px dashed var(--border, #ddd); border-radius: var(--border-radius, 3px);
+  }
+  .backup-dlmode-label { font-weight: 600; }
+  .backup-dlmode label { display: inline-flex; align-items: center; gap: .45em; cursor: pointer; }
+
   /* Restore section */
   .restore-danger {
-    margin: 0 1.5em 1.5em; padding: 1.2em 1.4em;
+    margin: 1.1em 1.5em 1.5em; padding: 1.2em 1.4em;
     border: 2px solid #c33; border-radius: var(--border-radius, 3px);
     background: rgba(204, 51, 51, .07);
   }
@@ -328,9 +344,31 @@
     }, 2500);
   }
 
+  // The user can prefer the classic browser download over the on-page (FSA) one - e.g.
+  // to keep browsing while the download continues in the browser's download manager.
+  // Purely functional first-party preference, remembered in localStorage.
+  var MODE_KEY = 'contao_backup_dl_mode';
+
+  function preferNative() {
+    try { return localStorage.getItem(MODE_KEY) === 'native'; } catch (e) { return false; }
+  }
+
+  var modeBox = document.getElementById('backup-dlmode');
+
+  if (modeBox && supportsFsa) {
+    modeBox.hidden = false;
+    var current = preferNative() ? 'native' : 'js';
+    modeBox.querySelectorAll('input[name="backup_dl_mode"]').forEach(function (radio) {
+      radio.checked = (radio.value === current);
+      radio.addEventListener('change', function () {
+        try { localStorage.setItem(MODE_KEY, radio.value); } catch (e) {}
+      });
+    });
+  }
+
   forms.forEach(function (form) {
     form.addEventListener('submit', function (e) {
-      if (supportsFsa) { e.preventDefault(); fsaDownload(form); }
+      if (supportsFsa && !preferNative()) { e.preventDefault(); fsaDownload(form); }
       else { nativeDownload(form); }
     });
   });

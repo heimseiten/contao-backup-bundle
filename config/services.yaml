@@ -3,7 +3,7 @@ services:
         autowire: true
         autoconfigure: true
 
-    # Public so the (firewall-protected) backend module can fetch it from the container.
+    # Public so the (firewall-protected) backend module can fetch them from the container.
     Heimseiten\ContaoBackupBundle\BackupDownloader:
         public: true
         arguments:
@@ -11,3 +11,19 @@ services:
             $projectDir: '%kernel.project_dir%'
             $logger: '@monolog.logger.contao'
             $requestStack: '@request_stack'
+
+    Heimseiten\ContaoBackupBundle\RestoreArchiveStore:
+        public: true
+        arguments:
+            $projectDir: '%kernel.project_dir%'
+
+    Heimseiten\ContaoBackupBundle\BackupRestorer:
+        public: true
+        arguments:
+            $backupManager: '@contao.doctrine.backup_manager'
+            $backupsStorage: '@contao.filesystem.virtual.backups'
+            $connection: '@database_connection'
+            $store: '@Heimseiten\ContaoBackupBundle\RestoreArchiveStore'
+            $dbafsManager: '@contao.filesystem.dbafs_manager'
+            $projectDir: '%kernel.project_dir%'
+            $logger: '@monolog.logger.contao'

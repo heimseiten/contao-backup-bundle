@@ -65,6 +65,152 @@
 
 </div>
 
+<?php $l = $this->lang; ?>
+
+<h2 class="sub_headline" id="restore" style="margin-top:2em;"><?= $l['restoreHeadline'] ?></h2>
+
+<div class="tl_message">
+  <p class="tl_info"><?= $l['restoreIntro'] ?></p>
+</div>
+
+<div class="restore-danger">
+  <p class="restore-danger-title">⚠️ <?= $l['restoreDanger'] ?></p>
+  <p class="restore-danger-text"><?= $l['restoreWarning'] ?></p>
+</div>
+
+<?php if ($this->restoreError): ?>
+  <div class="tl_message">
+    <p class="tl_error"><?= $this->restoreError ?></p>
+    <?php if ($this->restoreErrorSafetyBackup): ?>
+      <p class="tl_info"><?= sprintf($l['restoreFailedSafety'], $this->restoreErrorSafetyBackup) ?></p>
+    <?php endif; ?>
+  </div>
+<?php endif; ?>
+
+<?php if ($this->restoreResultSteps): ?>
+  <div class="tl_message">
+    <p class="tl_confirm"><strong><?= $l['restoreDone'] ?></strong></p>
+    <ul class="restore-steps">
+      <?php foreach ($this->restoreResultSteps as $step): ?>
+        <li>✓ <?= $step ?></li>
+      <?php endforeach; ?>
+    </ul>
+    <?php foreach ($this->restoreResultWarnings as $warning): ?>
+      <p class="tl_error"><?= $warning ?></p>
+    <?php endforeach; ?>
+    <p class="tl_info"><?= $l['restoreDoneNote'] ?></p>
+  </div>
+<?php endif; ?>
+
+<div class="tl_tbox">
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:1.5em; align-items:start; padding:0 1.5em 1.5em;">
+
+    <div class="backup-card" style="border:1px solid var(--border,#ddd); border-radius:var(--border-radius,3px); padding:1.2em;">
+      <p class="backup-group-title"><?= $l['serverRestoreTitle'] ?></p>
+      <p class="restore-explain"><?= $l['serverRestoreExplain'] ?></p>
+
+      <?php if (!$this->serverBackups): ?>
+        <p class="restore-explain"><em><?= $l['serverRestoreEmpty'] ?></em></p>
+      <?php else: ?>
+        <form method="post" action="<?= $this->action ?>#restore" data-turbo="false" data-restore-form>
+          <input type="hidden" name="FORM_SUBMIT" value="tl_backup_restore_server">
+          <input type="hidden" name="REQUEST_TOKEN" value="<?= $this->requestToken ?>">
+
+          <div class="restore-backup-list">
+            <?php foreach ($this->serverBackups as $backup): ?>
+              <label class="restore-backup-item">
+                <input type="radio" name="backup_name" value="<?= $backup['name'] ?>" required>
+                <span><code><?= $backup['name'] ?></code><br><small><?= $backup['date'] ?> · <?= $backup['size'] ?></small></span>
+              </label>
+            <?php endforeach; ?>
+          </div>
+
+          <label class="restore-option"><input type="checkbox" name="opt_safety" value="1" checked> <?= $l['optSafety'] ?></label>
+          <label class="restore-option"><input type="checkbox" name="opt_filesync" value="1" checked> <?= $l['optFilesync'] ?></label>
+
+          <label class="restore-confirm">
+            <span><?= sprintf($l['confirmLabel'], $l['confirmWord']) ?></span>
+            <input type="text" name="confirm_word" class="tl_text" autocomplete="off" spellcheck="false" required placeholder="<?= $l['confirmWord'] ?>">
+          </label>
+
+          <button type="submit" class="tl_submit restore-btn restore-btn-danger" style="width:100%;"><span class="backup-spinner" style="display:none" aria-hidden="true"></span><span class="restore-label"><?= $l['restoreButtonServer'] ?></span></button>
+        </form>
+      <?php endif; ?>
+    </div>
+
+    <div class="backup-card" style="border:1px solid var(--border,#ddd); border-radius:var(--border-radius,3px); padding:1.2em;">
+      <p class="backup-group-title"><?= $l['uploadTitle'] ?></p>
+
+      <?php if ($this->archiveError): ?>
+        <div class="tl_message"><p class="tl_error"><?= $this->archiveError ?></p></div>
+        <form method="post" action="<?= $this->action ?>#restore" data-turbo="false">
+          <input type="hidden" name="FORM_SUBMIT" value="tl_backup_discard">
+          <input type="hidden" name="REQUEST_TOKEN" value="<?= $this->requestToken ?>">
+          <button type="submit" class="tl_submit" style="width:100%;"><?= $l['discardButton'] ?></button>
+        </form>
+      <?php elseif (!$this->archive): ?>
+        <p class="restore-explain"><?= $l['uploadExplain'] ?></p>
+
+        <form method="post" action="<?= $this->action ?>#restore" enctype="multipart/form-data" data-turbo="false" data-upload-form data-max-chunk="<?= $this->maxChunkSize ?>">
+          <input type="hidden" name="FORM_SUBMIT" value="tl_backup_upload">
+          <input type="hidden" name="REQUEST_TOKEN" value="<?= $this->requestToken ?>">
+          <p><input type="file" name="archive" accept=".zip,application/zip" required></p>
+          <button type="submit" class="tl_submit restore-btn" style="width:100%;"><span class="backup-spinner" style="display:none" aria-hidden="true"></span><span class="restore-label"><?= $l['uploadButton'] ?></span></button>
+          <div class="backup-progress" hidden>
+            <progress class="backup-progress-bar" max="100" value="0"></progress>
+            <div class="backup-progress-text"></div>
+          </div>
+          <div class="restore-upload-error tl_error" hidden></div>
+        </form>
+      <?php else: ?>
+        <p class="restore-explain"><?= sprintf($l['archiveReady'], $this->archive['name'], $this->archive['size']) ?></p>
+
+        <ul class="backup-list restore-archive-summary">
+          <li><?= $this->archive['hasDatabase'] ? sprintf($l['archiveDatabase'], '<code>'.$this->archive['databaseName'].'</code>', $this->archive['databaseDate']) : $l['archiveNoDatabase'] ?></li>
+          <li><?= $this->archive['hasFiles'] ? sprintf($l['archiveFiles'], $this->archive['fileCount'], $this->archive['uncompressed']) : $l['archiveNoFiles'] ?></li>
+          <?php if ($this->archive['hasFiles']): ?>
+            <li><?php foreach (array_keys($this->archive['paths']) as $i => $path): ?><?= $i > 0 ? ', ' : '' ?><code><?= $path ?></code><?php endforeach; ?></li>
+          <?php endif; ?>
+          <?php if ($this->archive['ignored'] > 0): ?>
+            <li><?= sprintf($l['archiveIgnored'], $this->archive['ignored']) ?></li>
+          <?php endif; ?>
+        </ul>
+
+        <form method="post" action="<?= $this->action ?>#restore" data-turbo="false" data-restore-form>
+          <input type="hidden" name="FORM_SUBMIT" value="tl_backup_restore_archive">
+          <input type="hidden" name="REQUEST_TOKEN" value="<?= $this->requestToken ?>">
+
+          <?php if ($this->archive['hasDatabase']): ?>
+            <label class="restore-option"><input type="checkbox" name="opt_database" value="1" checked> <?= $l['optDatabase'] ?></label>
+          <?php endif; ?>
+          <?php if ($this->archive['hasFiles']): ?>
+            <label class="restore-option"><input type="checkbox" name="opt_files" value="1" checked> <?= $l['optFiles'] ?></label>
+            <?php if ($this->archive['hasComposer']): ?>
+              <label class="restore-option restore-option-indent"><input type="checkbox" name="opt_composer" value="1"> <?= $l['optComposer'] ?></label>
+            <?php endif; ?>
+          <?php endif; ?>
+          <label class="restore-option"><input type="checkbox" name="opt_safety" value="1" checked> <?= $l['optSafety'] ?></label>
+          <label class="restore-option"><input type="checkbox" name="opt_filesync" value="1" checked> <?= $l['optFilesync'] ?></label>
+
+          <label class="restore-confirm">
+            <span><?= sprintf($l['confirmLabel'], $l['confirmWord']) ?></span>
+            <input type="text" name="confirm_word" class="tl_text" autocomplete="off" spellcheck="false" required placeholder="<?= $l['confirmWord'] ?>">
+          </label>
+
+          <button type="submit" class="tl_submit restore-btn restore-btn-danger" style="width:100%;"><span class="backup-spinner" style="display:none" aria-hidden="true"></span><span class="restore-label"><?= $l['restoreButtonArchive'] ?></span></button>
+        </form>
+
+        <form method="post" action="<?= $this->action ?>#restore" data-turbo="false" style="margin-top:.6em;">
+          <input type="hidden" name="FORM_SUBMIT" value="tl_backup_discard">
+          <input type="hidden" name="REQUEST_TOKEN" value="<?= $this->requestToken ?>">
+          <button type="submit" class="tl_submit" style="width:100%;"><?= $l['discardButton'] ?></button>
+        </form>
+      <?php endif; ?>
+    </div>
+
+  </div>
+</div>
+
 <style>
   .backup-spinner {
     display: inline-block; width: 1em; height: 1em; margin-right: .5em; vertical-align: -.15em;
@@ -87,6 +233,35 @@
   .backup-group-title { margin: .9em 0 .25em; font-weight: 600; }
   .backup-group-title:first-child { margin-top: 0; }
   .backup-list { margin: 0; padding-left: 1.3em; line-height: 1.7; }
+
+  /* Restore section */
+  .restore-danger {
+    margin: 0 1.5em 1.5em; padding: 1.2em 1.4em;
+    border: 2px solid #c33; border-radius: var(--border-radius, 3px);
+    background: rgba(204, 51, 51, .07);
+  }
+  .restore-danger-title { margin: 0 0 .5em; font-size: 1.35em; font-weight: 700; color: #c33; text-transform: uppercase; letter-spacing: .02em; }
+  .restore-danger-text { margin: 0; line-height: 1.6; }
+  .restore-explain { margin: .2em 0 .9em; line-height: 1.55; opacity: .85; }
+  .restore-backup-list {
+    max-height: 16em; overflow-y: auto; margin-bottom: .9em;
+    border: 1px solid var(--border, #ddd); border-radius: var(--border-radius, 3px);
+  }
+  .restore-backup-item { display: flex; gap: .6em; align-items: flex-start; padding: .55em .7em; cursor: pointer; }
+  .restore-backup-item + .restore-backup-item { border-top: 1px solid var(--border, #ddd); }
+  .restore-backup-item input { margin-top: .2em; }
+  .restore-backup-item small { opacity: .75; }
+  .restore-option { display: block; margin: .45em 0; line-height: 1.5; cursor: pointer; }
+  .restore-option-indent { margin-left: 1.6em; }
+  .restore-confirm { display: block; margin: 1em 0 .8em; }
+  .restore-confirm > span { display: block; margin-bottom: .35em; font-weight: 600; }
+  .restore-confirm input { width: 100%; box-sizing: border-box; }
+  .restore-btn-danger { background: #c33; border-color: #c33; color: #fff; }
+  .restore-btn-danger:hover { background: #a52828; }
+  .restore-btn[disabled] { cursor: progress; }
+  .restore-steps { margin: .5em 0; padding-left: 1.5em; line-height: 1.8; }
+  .restore-upload-error { margin-top: .8em; }
+  .restore-archive-summary { margin-bottom: 1em; }
 </style>
 
 <script>
@@ -290,5 +465,129 @@
       finish(u, done ? STARTED : u.original);
     }, 400);
   }
+})();
+</script>
+
+<script>
+(function () {
+  // ---- Restore section ----------------------------------------------------------------
+  var UPLOAD_BUSY = <?= json_encode($this->lang['uploadBusy']) ?>;
+  var UPLOAD_ERROR = <?= json_encode($this->lang['uploadError']) ?>;
+  var RESTORE_BUSY = <?= json_encode($this->lang['restoreBusy']) ?>;
+
+  function fmt(b) {
+    if (b >= 1073741824) { return (b / 1073741824).toFixed(2) + ' GB'; }
+    if (b >= 1048576) { return (b / 1048576).toFixed(1) + ' MB'; }
+    if (b >= 1024) { return Math.round(b / 1024) + ' KB'; }
+    return b + ' B';
+  }
+
+  // A restore can run for minutes: show a busy state after the submit left the page's
+  // control (the fields themselves must stay enabled so their values get posted).
+  document.querySelectorAll('form[data-restore-form]').forEach(function (form) {
+    form.addEventListener('submit', function () {
+      var btn = form.querySelector('.restore-btn');
+      setTimeout(function () {
+        document.querySelectorAll('.restore-btn, .tl_submit').forEach(function (b) { b.disabled = true; });
+        if (btn) {
+          btn.querySelector('.backup-spinner').style.display = 'inline-block';
+          btn.querySelector('.restore-label').textContent = RESTORE_BUSY;
+        }
+      }, 0);
+    });
+  });
+
+  // Chunked archive upload: the file is sent in pieces small enough for the server's
+  // upload limits, then the page reloads and shows the analyzed archive. Without
+  // JavaScript the form falls back to one classic (limit-bound) upload POST.
+  var uploadForm = document.querySelector('form[data-upload-form]');
+
+  if (!uploadForm || typeof window.fetch !== 'function' || !window.File || !File.prototype.slice) {
+    return;
+  }
+
+  var CHUNK = Math.max(262144, parseInt(uploadForm.getAttribute('data-max-chunk'), 10) || 4194304);
+
+  uploadForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+
+    var input = uploadForm.querySelector('input[type="file"]');
+    var file = input && input.files && input.files[0];
+    if (!file) { return; }
+
+    var btn = uploadForm.querySelector('.restore-btn');
+    var prog = uploadForm.querySelector('.backup-progress');
+    var bar = uploadForm.querySelector('.backup-progress-bar');
+    var ptext = uploadForm.querySelector('.backup-progress-text');
+    var errBox = uploadForm.querySelector('.restore-upload-error');
+    var label = btn.querySelector('.restore-label');
+    var original = label.textContent;
+
+    btn.disabled = true;
+    input.disabled = true;
+    btn.querySelector('.backup-spinner').style.display = 'inline-block';
+    label.textContent = UPLOAD_BUSY;
+    errBox.hidden = true;
+    prog.hidden = false;
+    bar.value = 0;
+
+    var id = (window.crypto && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : String(Date.now()) + '-' + Math.random().toString(36).slice(2) + '-' + Math.random().toString(36).slice(2);
+
+    var action = uploadForm.getAttribute('action');
+    var token = uploadForm.querySelector('input[name="REQUEST_TOKEN"]').value;
+
+    function sendChunk(offset, attempt) {
+      var end = Math.min(offset + CHUNK, file.size);
+      var isLast = end >= file.size;
+
+      var fd = new FormData();
+      fd.append('FORM_SUBMIT', 'tl_backup_upload_chunk');
+      fd.append('REQUEST_TOKEN', token);
+      fd.append('upload_id', id);
+      fd.append('offset', String(offset));
+      fd.append('total', String(file.size));
+      fd.append('last', isLast ? '1' : '0');
+      fd.append('name', file.name);
+      fd.append('chunk', file.slice(offset, end), 'chunk.bin');
+
+      return fetch(action, { method: 'POST', body: fd, credentials: 'same-origin' })
+        .then(function (r) {
+          if (!r.ok) {
+            return r.json().catch(function () { return {}; }).then(function (data) {
+              throw { fatal: r.status < 500, message: data.error || ('HTTP ' + r.status) };
+            });
+          }
+          return r.json();
+        })
+        .then(function () {
+          var pct = Math.round(end / file.size * 100);
+          bar.value = pct;
+          ptext.textContent = pct + ' % · ' + fmt(end) + ' / ' + fmt(file.size);
+          if (!isLast) { return sendChunk(end, 0); }
+        })
+        .catch(function (err) {
+          // Network hiccups are retried (a re-sent complete chunk is acknowledged
+          // idempotently by the server); real server rejections are not.
+          if (!err || err.fatal || attempt >= 2) { throw err; }
+          return new Promise(function (res) { setTimeout(res, 1000 * (attempt + 1)); })
+            .then(function () { return sendChunk(offset, attempt + 1); });
+        });
+    }
+
+    sendChunk(0, 0)
+      .then(function () { window.location.reload(); })
+      .catch(function (err) {
+        var message = (err && err.message) ? err.message : String(err || 'Error');
+        errBox.textContent = UPLOAD_ERROR.replace('%s', message);
+        errBox.hidden = false;
+        prog.hidden = true;
+        btn.disabled = false;
+        input.disabled = false;
+        btn.querySelector('.backup-spinner').style.display = 'none';
+        label.textContent = original;
+      });
+  });
 })();
 </script>

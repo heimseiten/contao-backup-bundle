@@ -11,6 +11,10 @@ Fügt im Backend unter **System** den Punkt **„Sicherung"** hinzu, mit drei Do
 - **Nur Datenbank herunterladen** – das Datenbank-Backup (Contaos eigenes Backup,
   gzip-komprimiertes SQL; wird zusätzlich in `var/backups` abgelegt).
 
+Außerdem können Backups direkt im Backend **wiederhergestellt** werden – aus
+`var/backups` oder per Upload eines heruntergeladenen Backup-ZIPs (siehe
+[Wiederherstellung](#wiederherstellung-restore)).
+
 ## Enthaltene Pfade (Dateien- und Voll-Backup)
 
 | Pfad | Inhalt |
@@ -35,6 +39,76 @@ ein Backup von `vendor/` ist daher unnötig. Genauso bewusst ausgelassen: `var/`
 (Cache/Logs, regeneriert sich) und `public/` (Einstiegspunkt + per
 `contao:install`/`assets:install` neu erzeugte Assets).
 
+## Wiederherstellung (Restore)
+
+> ⚠️ **NUTZUNG AUF EIGENE GEFAHR!** Die Wiederherstellung **ersetzt den aktuellen
+> Stand unwiderruflich**. Schlägt sie mittendrin fehl (z. B. durch ein hartes
+> Server-Timeout), kann eine **nicht mehr funktionierende Installation** zurückbleiben,
+> die sich nur noch von Hand retten lässt. Eine Wiederherstellung deshalb **nur**
+> durchführen, wenn man im Notfall auch ohne das Backend an den Server kommt – also
+> **Zugangsdaten zum Hosting** (FTP/SSH und Datenbank) besitzt **und weiß, wie ein
+> Backup manuell eingespielt wird**. Dieselbe Warnung steht unübersehbar im Modul.
+
+Unter den Download-Buttons bietet die Seite zwei Wege (nur für Administratoren,
+jeweils mit Optionen und einer Bestätigung durch Eintippen von **WIEDERHERSTELLEN**):
+
+- **Datenbank-Sicherung vom Server wiederherstellen** – listet die Contao-Backups
+  aus `var/backups` (dort legt auch der „Nur Datenbank"-Download eine Kopie ab).
+- **Backup-Archiv (ZIP) hochladen und wiederherstellen** – ein mit diesem Bundle
+  erstelltes Voll- oder Dateien-ZIP. Der Upload läuft in **kleinen Teilstücken**
+  (Chunks unterhalb von `upload_max_filesize`/`post_max_size`), dadurch funktionieren
+  auch mehrere GB große Archive trotz PHP-Upload-Limits. Nach dem Upload zeigt die
+  Seite, was das Archiv enthält (Datenbank-Dump, Dateien-Pfade), und was eingespielt
+  werden soll, ist per Checkbox wählbar.
+
+### Ablauf und Sicherheitsnetz
+
+1. **Analyse und Entpacken passieren zuerst** – in ein Staging-Verzeichnis unter
+   `var/backup_restore`. Ein defektes oder manipuliertes Archiv bricht ab, **bevor**
+   irgendetwas verändert wurde.
+2. **Sicherheits-Backup** (Option, standardmäßig an): Vor dem Einspielen wird die
+   aktuelle Datenbank als normales Contao-Backup gesichert – der Rettungsanker,
+   falls das falsche Backup gewählt war.
+3. **Datenbank:** Es werden zuerst **alle Tabellen gelöscht** (außer den in Contaos
+   `backup.ignore_tables` bewusst ausgenommenen), danach wird der Dump über Contaos
+   eigenen Restore eingespielt. So bleibt keine Tabelle übrig, die nicht zum Backup
+   gehört – der Stand entspricht exakt der Sicherung.
+4. **Dateien:** Jeder im Archiv enthaltene Pfad (z. B. `files`, `templates`) wird
+   **atomar getauscht** (der alte Ordner wird beiseite geschoben, der neue an seine
+   Stelle) – bei einem Fehler mittendrin wird zurückgerollt, gelöscht wird das Alte
+   erst nach dem letzten erfolgreichen Tausch. Seit dem Backup hinzugekommene Dateien
+   entfallen dadurch vollständig.
+5. **Danach:** Caches werden geleert (HTTP-Cache, Pools; nach Datei-Restore auch
+   Twig/Contao/Übersetzungen) und optional läuft die Dateisynchronisation
+   (`contao:filesync`). Die Ergebnisseite listet jeden Schritt auf.
+
+`composer.json`/`composer.lock` werden standardmäßig **nicht** eingespielt (eigene
+Checkbox): `vendor/` ist nie Teil des Backups, nach dem Einspielen wäre also
+`composer install` bzw. der Contao Manager nötig. Gleiches gilt generell: Haben sich
+die installierten Erweiterungen seit dem Backup geändert, anschließend
+`composer install`/`contao:migrate` ausführen.
+
+### Backup in eine andere/frische Installation einspielen
+
+Der Restore prüft nur, dass der Dump ein Contao-Backup ist – nicht, von welcher
+Installation er stammt. Ein Backup lässt sich damit auch **umziehen**: In der
+Ziel-Installation (gleiche bzw. neuere Contao-Version) dieses Bundle installieren,
+das Voll-ZIP hochladen, einspielen – fertig. `.env`-Werte (`DATABASE_URL`,
+`APP_SECRET`) sind bewusst nicht Teil des Backups und bleiben die der
+Ziel-Installation. Benutzer/Passwörter entsprechen danach dem Stand des Backups –
+gegebenenfalls neu anmelden (mit den Zugangsdaten aus dem Backup).
+
+### Weitere Hinweise
+
+- Während des Einspielens ist die Website kurz inkonsistent (Tabellen werden gerade
+  ersetzt) – Besucher können in diesem Moment Fehler sehen. Zeitfenster: je nach
+  Größe Sekunden bis wenige Minuten.
+- Es kann immer nur **eine** Wiederherstellung gleichzeitig laufen (Lock).
+- Für das Entpacken wird temporär zusätzlicher Plattenplatz benötigt (ZIP +
+  entpackter Stand); der freie Platz wird vorher geprüft.
+- Jede Wiederherstellung wird im System-Log protokolliert (Start, Schritte im
+  Ergebnis, Fehler).
+
 ## Sicherheit
 
 Ein Backup ist per Definition eine vollständige Kopie aller sensiblen Daten –
@@ -53,6 +127,12 @@ behandle die heruntergeladene Datei entsprechend.
   Mitglieder-/Personendaten und `localconfig.php`. Sie ist **unverschlüsselt** – sicher
   (idealerweise verschlüsselt) aufbewahren, nur über HTTPS laden, nicht ungeschützt in
   Cloud-Ordnern ablegen.
+- **Wiederherstellung gehärtet:** ebenfalls nur für Administratoren und CSRF-geschützt,
+  zusätzlich serverseitig geprüftes Bestätigungswort. Hochgeladene Archive werden vor
+  dem Entpacken validiert: Einträge mit Pfad-Ausbruch (`../`, absolute Pfade,
+  Backslashes) lehnen das **gesamte** Archiv ab, Symlink-Einträge werden nie entpackt,
+  und entpackt wird ausschließlich in die bekannten Backup-Pfade – alles andere im
+  Archiv wird ignoriert. Der Upload liegt unter `var/` (nicht per URL erreichbar).
 
 ## Große Installationen & PHP-Limits
 

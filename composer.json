@@ -1,8 +1,8 @@
 {
     "name": "heimseiten/contao-backup-bundle",
     "type": "contao-bundle",
-    "description": "„Sicherung\" im Backend (unter System): Datenbank-Backup und alle relevanten Dateien/Ordner als ZIP herunterladen.",
-    "keywords": ["contao", "backup", "download", "database", "files", "zip"],
+    "description": "„Sicherung\" im Backend (unter System): Datenbank-Backup und alle relevanten Dateien/Ordner als ZIP herunterladen – und Backups wiederherstellen (aus var/backups oder per ZIP-Upload).",
+    "keywords": ["contao", "backup", "restore", "download", "database", "files", "zip"],
     "license": "GPL-3.0-or-later",
     "authors": [
         {
@@ -17,7 +17,8 @@
         "source": "https://github.com/heimseiten/contao-backup-bundle"
     },
     "require": {
-        "php": "^8.1",
+        "php": "^8.2",
+        "ext-zip": "*",
         "contao/core-bundle": "^5.3",
         "maennchen/zipstream-php": "^3.0"
     },

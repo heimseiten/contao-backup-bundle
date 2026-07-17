@@ -152,8 +152,11 @@ Damit sind die üblichen Stolperfallen bei großen `files/`-Ordnern entschärft:
   bleibt ein serverseitiges Thema – ist aber selten so knapp gesetzt.
 - **ZIP > 4 GB:** automatisch über ZIP64.
 
-**Fortschrittsbalken direkt auf der Seite:** In **Chrome/Edge** wird der Download per
-JavaScript über die [File System Access API](https://developer.mozilla.org/docs/Web/API/Window/showSaveFilePicker)
+**Download-Art wählbar:** Standard ist der **klassische Browser-Download** – er läuft im
+Download-Manager des Browsers und damit auch weiter, wenn die Seite verlassen wird. In
+**Chrome/Edge** lässt sich oben alternativ **„Mit Fortschrittsbalken auf dieser Seite"**
+wählen (Wahl wird im Browser gemerkt): Dann wird der Download per JavaScript über die
+[File System Access API](https://developer.mozilla.org/docs/Web/API/Window/showSaveFilePicker)
 direkt auf die Platte gestreamt – mit einem Fortschrittsbalken samt Prozent/MB **im
 Backup-Modul selbst**. Die Prozentangabe ist exakt, weil die ZIP-Größe vorab in einem
 schnellen Durchlauf ermittelt (nur ein `stat` pro Datei, kein Inhalt – bei z. B. ~1.750

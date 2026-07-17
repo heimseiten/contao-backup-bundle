@@ -60,8 +60,8 @@
   <?php // Only revealed by JavaScript in browsers that support the on-page (FSA) download. ?>
   <div class="backup-dlmode" id="backup-dlmode" hidden>
     <span class="backup-dlmode-label"><?= $this->lang['dlModeLabel'] ?></span>
-    <label><input type="radio" name="backup_dl_mode" value="js"> <?= $this->lang['dlModeJs'] ?></label>
     <label><input type="radio" name="backup_dl_mode" value="native"> <?= $this->lang['dlModeNative'] ?></label>
+    <label><input type="radio" name="backup_dl_mode" value="js"> <?= $this->lang['dlModeJs'] ?></label>
   </div>
 
   <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:1.5em; align-items:start; padding:0 1.5em 1.5em;">
@@ -344,13 +344,13 @@
     }, 2500);
   }
 
-  // The user can prefer the classic browser download over the on-page (FSA) one - e.g.
-  // to keep browsing while the download continues in the browser's download manager.
+  // The classic browser download is the default (it keeps running in the browser's
+  // download manager when the page is left); the on-page (FSA) progress bar is opt-in.
   // Purely functional first-party preference, remembered in localStorage.
   var MODE_KEY = 'contao_backup_dl_mode';
 
   function preferNative() {
-    try { return localStorage.getItem(MODE_KEY) === 'native'; } catch (e) { return false; }
+    try { return localStorage.getItem(MODE_KEY) !== 'js'; } catch (e) { return true; }
   }
 
   var modeBox = document.getElementById('backup-dlmode');
@@ -362,6 +362,7 @@
       radio.checked = (radio.value === current);
       radio.addEventListener('change', function () {
         try { localStorage.setItem(MODE_KEY, radio.value); } catch (e) {}
+        updateGzipHint();
       });
     });
   }
@@ -375,20 +376,30 @@
 
   // Before any real download, probe whether a compressing proxy (e.g. Apache mod_deflate) strips
   // the size headers off a streamed response - then the browser cannot show a percentage. If so,
-  // reveal the hint with the one-line .htaccess fix. Only relevant where the on-page bar runs.
-  async function detectCompression() {
-    var hint = document.getElementById('backup-gzip-hint');
-    if (!hint || !forms[0]) { return; }
+  // reveal the hint with the one-line .htaccess fix. Only relevant while the on-page bar is the
+  // chosen download method, so the hint follows the choice (probing only once).
+  var gzipHintNeeded = null;
+
+  async function probeCompression() {
+    if (!forms[0]) { return false; }
     try {
       var fd = new FormData();
       fd.append('FORM_SUBMIT', 'tl_backup_probe');
       fd.append('REQUEST_TOKEN', forms[0].querySelector('input[name="REQUEST_TOKEN"]').value);
       var r = await fetch(forms[0].getAttribute('action'), { method: 'POST', body: fd, credentials: 'same-origin', cache: 'no-store' });
       if (r.body && r.body.cancel) { r.body.cancel(); }
-      if (r.ok && !(r.headers.get('x-backup-size') || r.headers.get('content-length'))) { hint.hidden = false; }
-    } catch (e) { /* probe failed - no hint */ }
+      return r.ok && !(r.headers.get('x-backup-size') || r.headers.get('content-length'));
+    } catch (e) { return false; }
   }
-  if (supportsFsa) { detectCompression(); }
+
+  async function updateGzipHint() {
+    var hint = document.getElementById('backup-gzip-hint');
+    if (!hint) { return; }
+    if (preferNative()) { hint.hidden = true; return; }
+    if (null === gzipHintNeeded) { gzipHintNeeded = await probeCompression(); }
+    hint.hidden = !gzipHintNeeded;
+  }
+  if (supportsFsa) { updateGzipHint(); }
 
   async function fsaDownload(form) {
     var fs = form.querySelector('input[name="FORM_SUBMIT"]').value;

@@ -105,6 +105,23 @@
     <?php foreach ($this->restoreResultWarnings as $warning): ?>
       <p class="tl_error"><?= $warning ?></p>
     <?php endforeach; ?>
+    <p class="restore-health" id="restore-health" data-checking="<?= $l['healthChecking'] ?>" data-ok="<?= $l['healthOk'] ?>" data-fail="<?= $l['healthFail'] ?>"></p>
+    <?php if (null !== $this->composerDiff): ?>
+      <?php $diffTotal = $this->composerDiff['install'] + $this->composerDiff['remove'] + $this->composerDiff['change']; ?>
+      <?php if ($diffTotal > 0): ?>
+        <div class="restore-composer">
+          <p class="restore-composer-title"><?= $l['composerTitle'] ?></p>
+          <p><?= sprintf($l['composerDiffText'], $this->composerDiff['install'], $this->composerDiff['remove'], $this->composerDiff['change']) ?></p>
+          <?php if ($this->managerUrl): ?>
+            <a href="<?= $this->managerUrl ?>" target="_blank" class="tl_submit restore-composer-btn"><?= $l['composerManagerButton'] ?></a>
+          <?php else: ?>
+            <p class="tl_info"><?= $l['composerNoManager'] ?></p>
+          <?php endif; ?>
+        </div>
+      <?php else: ?>
+        <p class="tl_confirm"><?= $l['composerDiffNone'] ?></p>
+      <?php endif; ?>
+    <?php endif; ?>
     <p class="tl_info"><?= $l['restoreDoneNote'] ?></p>
   </div>
 <?php endif; ?>
@@ -133,6 +150,7 @@
           </div>
 
           <label class="restore-option"><input type="checkbox" name="opt_safety" value="1" checked> <?= $l['optSafety'] ?></label>
+          <label class="restore-option"><input type="checkbox" name="opt_migrate" value="1" checked> <?= $l['optMigrate'] ?></label>
           <label class="restore-option"><input type="checkbox" name="opt_filesync" value="1" checked> <?= $l['optFilesync'] ?></label>
 
           <label class="restore-confirm">
@@ -183,12 +201,30 @@
           <?php endif; ?>
         </ul>
 
-        <form method="post" action="<?= $this->action ?>#restore" data-turbo="false" data-restore-form>
+        <?php // Compatibility between the backup (manifest) and this installation. ?>
+        <?php if ('same' === $this->archive['compat']): ?>
+          <p class="restore-compat restore-compat--ok"><?= sprintf($l['compatSame'], $this->archive['sourceContaoVersion'], $this->targetContaoVersion) ?></p>
+        <?php elseif ('older' === $this->archive['compat']): ?>
+          <p class="restore-compat restore-compat--warn"><?= sprintf($l['compatOlder'], $this->archive['sourceContaoVersion'], $this->targetContaoVersion) ?></p>
+        <?php elseif ('newer' === $this->archive['compat']): ?>
+          <div class="restore-compat restore-compat--danger">
+            <p><?= sprintf($l['compatNewer'], $this->archive['sourceContaoVersion'], $this->targetContaoVersion) ?></p>
+            <label class="restore-option"><input type="checkbox" name="opt_downgrade" value="1" form="restore-archive-form" data-downgrade-gate> <strong><?= $l['compatNewerConfirm'] ?></strong></label>
+          </div>
+        <?php else: ?>
+          <p class="restore-compat restore-compat--unknown"><?= $l['compatUnknown'] ?></p>
+        <?php endif; ?>
+        <?php if ($this->archive['phpMismatch']): ?>
+          <p class="restore-compat restore-compat--warn"><?= sprintf($l['compatPhp'], $this->archive['sourcePhpVersion'], PHP_VERSION) ?></p>
+        <?php endif; ?>
+
+        <form method="post" action="<?= $this->action ?>#restore" id="restore-archive-form" data-turbo="false" data-restore-form<?= 'newer' === $this->archive['compat'] ? ' data-needs-downgrade' : '' ?>>
           <input type="hidden" name="FORM_SUBMIT" value="tl_backup_restore_archive">
           <input type="hidden" name="REQUEST_TOKEN" value="<?= $this->requestToken ?>">
 
           <?php if ($this->archive['hasDatabase']): ?>
             <label class="restore-option"><input type="checkbox" name="opt_database" value="1" checked> <?= $l['optDatabase'] ?></label>
+            <label class="restore-option restore-option-indent"><input type="checkbox" name="opt_migrate" value="1" checked> <?= $l['optMigrate'] ?></label>
           <?php endif; ?>
           <?php if ($this->archive['hasFiles']): ?>
             <label class="restore-option"><input type="checkbox" name="opt_files" value="1" checked> <?= $l['optFiles'] ?></label>
@@ -275,9 +311,20 @@
   .restore-btn-danger { background: #c33; border-color: #c33; color: #fff; }
   .restore-btn-danger:hover { background: #a52828; }
   .restore-btn[disabled] { cursor: progress; }
+  .restore-btn[data-gate-locked] { opacity: .5; cursor: not-allowed; }
   .restore-steps { margin: .5em 0; padding-left: 1.5em; line-height: 1.8; }
   .restore-upload-error { margin-top: .8em; }
   .restore-archive-summary { margin-bottom: 1em; }
+  .restore-compat { margin: .8em 0; padding: .6em .8em; border-radius: var(--border-radius, 3px); line-height: 1.5; }
+  .restore-compat--ok { border: 1px solid #2e7d32; background: rgba(46, 125, 50, .1); }
+  .restore-compat--warn { border: 1px solid #b58900; background: rgba(181, 137, 0, .1); }
+  .restore-compat--danger { border: 2px solid #c33; background: rgba(204, 51, 51, .09); }
+  .restore-compat--danger p { margin: 0 0 .5em; }
+  .restore-compat--unknown { border: 1px dashed var(--border, #999); opacity: .85; }
+  .restore-health { margin: .6em 0; font-weight: 600; }
+  .restore-composer { margin: 1em 0; padding: .9em 1.1em; border: 1px solid #b58900; border-radius: var(--border-radius, 3px); background: rgba(181, 137, 0, .08); }
+  .restore-composer-title { margin: 0 0 .4em; font-weight: 700; }
+  .restore-composer-btn { display: inline-block; margin-top: .4em; text-decoration: none; }
 </style>
 
 <script>
@@ -545,6 +592,43 @@
       }, 0);
     });
   });
+
+  // Backup from a NEWER Contao version: keep the restore button locked until the
+  // explicit risk checkbox is ticked (the server enforces this as well).
+  var gatedForm = document.querySelector('form[data-needs-downgrade]');
+  var gateBox = document.querySelector('input[data-downgrade-gate]');
+
+  if (gatedForm && gateBox) {
+    var gatedBtn = gatedForm.querySelector('.restore-btn');
+    var applyGate = function () {
+      if (gateBox.checked) {
+        gatedBtn.disabled = false;
+        gatedBtn.removeAttribute('data-gate-locked');
+      } else {
+        gatedBtn.disabled = true;
+        gatedBtn.setAttribute('data-gate-locked', '');
+      }
+    };
+    gateBox.addEventListener('change', applyGate);
+    applyGate();
+  }
+
+  // After a restore: check whether the site actually responds and show the result.
+  var health = document.getElementById('restore-health');
+
+  if (health && typeof window.fetch === 'function') {
+    health.textContent = health.getAttribute('data-checking');
+    fetch('/', { cache: 'no-store', credentials: 'same-origin' })
+      .then(function (r) {
+        var template = r.ok ? health.getAttribute('data-ok') : health.getAttribute('data-fail');
+        health.textContent = template.replace('%s', String(r.status));
+        health.style.color = r.ok ? '#2e7d32' : '#c33';
+      })
+      .catch(function (err) {
+        health.textContent = health.getAttribute('data-fail').replace('%s', String((err && err.message) || 'Netzwerkfehler'));
+        health.style.color = '#c33';
+      });
+  }
 
   // Chunked archive upload: the file is sent in pieces small enough for the server's
   // upload limits, then the page reloads and shows the analyzed archive. Without

@@ -199,6 +199,7 @@ final class RestoreArchiveStore
         $uncompressed = 0;
         $ignored = 0;
         $symlinks = 0;
+        $manifest = null;
 
         for ($i = 0; $i < $zip->numFiles; ++$i) {
             $stat = $zip->statIndex($i);
@@ -216,6 +217,13 @@ final class RestoreArchiveStore
 
             if ($this->isSymlinkEntry($zip, $i)) {
                 ++$symlinks;
+                continue;
+            }
+
+            // Version metadata of the source installation (never extracted to disk).
+            if (BackupDownloader::MANIFEST_NAME === $name) {
+                $decoded = json_decode((string) $zip->getFromIndex($i), true);
+                $manifest = \is_array($decoded) ? $decoded : null;
                 continue;
             }
 
@@ -260,6 +268,7 @@ final class RestoreArchiveStore
             $uncompressed,
             $ignored,
             $symlinks,
+            $manifest,
         );
     }
 

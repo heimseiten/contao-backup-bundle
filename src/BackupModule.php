@@ -204,6 +204,7 @@ class BackupModule extends BackendModule
             includeComposer: false,
             safetyBackup: (bool) Input::post('opt_safety'),
             runFilesync: (bool) Input::post('opt_filesync'),
+            runMigrations: (bool) Input::post('opt_migrate'),
         );
 
         $this->runRestore(fn (BackupRestorer $restorer) => $restorer->restoreFromServerBackup($backupName, $options));
@@ -236,12 +237,31 @@ class BackupModule extends BackendModule
             includeComposer: (bool) Input::post('opt_composer'),
             safetyBackup: (bool) Input::post('opt_safety'),
             runFilesync: (bool) Input::post('opt_filesync'),
+            runMigrations: (bool) Input::post('opt_migrate'),
+            allowDowngrade: (bool) Input::post('opt_downgrade'),
         );
 
         if (!$options->restoreDatabase && !$options->restoreFiles) {
             $this->restoreError = $lang['nothingSelected'];
 
             return;
+        }
+
+        // Friendly, translated version of the restorer's downgrade guard (which stays in
+        // place as the second line of defense).
+        if ($options->restoreDatabase && !$options->allowDowngrade) {
+            try {
+                $restorer = System::getContainer()->get(BackupRestorer::class);
+                $info = $store->analyze();
+
+                if ($restorer->isDowngrade($info->sourceContaoVersion())) {
+                    $this->restoreError = \sprintf($lang['downgradeBlocked'], (string) $info->sourceContaoVersion(), (string) $restorer->installedContaoVersion());
+
+                    return;
+                }
+            } catch (RestoreException) {
+                // The archive problem will surface again in the restore itself.
+            }
         }
 
         $this->runRestore(fn (BackupRestorer $restorer) => $restorer->restoreFromUploadedArchive($options));
@@ -293,6 +313,8 @@ class BackupModule extends BackendModule
         $this->Template->requestToken = System::getContainer()->get('contao.csrf.token_manager')->getDefaultTokenValue();
 
         // Restore section
+        $restorer = System::getContainer()->get(BackupRestorer::class);
+
         $this->Template->lang = $lang;
         $this->Template->serverBackups = $this->listServerBackups();
         $this->Template->maxChunkSize = $this->maxUploadChunkBytes();
@@ -300,6 +322,9 @@ class BackupModule extends BackendModule
         $this->Template->restoreResultWarnings = null !== $this->restoreResult ? $this->translateCodes($this->restoreResult->warnings) : [];
         $this->Template->restoreError = $this->restoreError;
         $this->Template->restoreErrorSafetyBackup = $this->restoreErrorSafetyBackup;
+        $this->Template->composerDiff = $this->restoreResult?->composerDiff;
+        $this->Template->managerUrl = is_file($this->projectDir().'/public/contao-manager.phar.php') ? '/contao-manager.phar.php' : null;
+        $this->Template->targetContaoVersion = $restorer->installedContaoVersion();
 
         $archive = null;
         $archiveError = null;
@@ -319,6 +344,10 @@ class BackupModule extends BackendModule
                     'uncompressed' => $this->formatBytes($info->uncompressedBytes),
                     'hasComposer' => [] !== $info->composerPaths(),
                     'ignored' => $info->ignoredCount + $info->symlinkCount,
+                    'sourceContaoVersion' => $info->sourceContaoVersion(),
+                    'sourcePhpVersion' => $info->sourcePhpVersion(),
+                    'compat' => $this->compatState($restorer, $info),
+                    'phpMismatch' => $this->phpMismatch($info),
                 ];
             } catch (RestoreException $e) {
                 $archiveError = \sprintf($lang['archiveInvalid'], $e->getMessage());
@@ -327,6 +356,50 @@ class BackupModule extends BackendModule
 
         $this->Template->archive = $archive;
         $this->Template->archiveError = $archiveError;
+    }
+
+    /**
+     * Compatibility between the backup and this installation: 'same' (green), 'older'
+     * (backup is older - migrations will bridge the gap), 'newer' (backup is newer -
+     * blocked without explicit override) or 'unknown' (archive without a manifest).
+     */
+    private function compatState(BackupRestorer $restorer, RestoreArchiveInfo $info): string
+    {
+        $source = $info->sourceContaoVersion();
+        $target = $restorer->installedContaoVersion();
+
+        if (null === $source || null === $target) {
+            return 'unknown';
+        }
+
+        if ($restorer->isDowngrade($source)) {
+            return 'newer';
+        }
+
+        $short = static fn (string $version): string => preg_match('/^(\d+\.\d+)/', $version, $m) ? $m[1] : $version;
+
+        return $short($source) === $short($target) ? 'same' : 'older';
+    }
+
+    /**
+     * True if the backup was created on a newer PHP feature version than this server
+     * runs - relevant when composer.json/lock are restored (the lock may not be
+     * installable on the older PHP).
+     */
+    private function phpMismatch(RestoreArchiveInfo $info): bool
+    {
+        $source = $info->sourcePhpVersion();
+
+        if (null === $source || !preg_match('/^(\d+)\.(\d+)/', $source, $m)) {
+            return false;
+        }
+
+        return version_compare($m[1].'.'.$m[2], \PHP_MAJOR_VERSION.'.'.\PHP_MINOR_VERSION, '>');
+    }
+
+    private function projectDir(): string
+    {
+        return (string) System::getContainer()->getParameter('kernel.project_dir');
     }
 
     /**

@@ -8,6 +8,7 @@ services:
         public: true
         arguments:
             $backupManager: '@contao.doctrine.backup_manager'
+            $connection: '@database_connection'
             $projectDir: '%kernel.project_dir%'
             $logger: '@monolog.logger.contao'
             $requestStack: '@request_stack'
@@ -25,5 +26,6 @@ services:
             $connection: '@database_connection'
             $store: '@Heimseiten\ContaoBackupBundle\RestoreArchiveStore'
             $dbafsManager: '@contao.filesystem.dbafs_manager'
+            $kernel: '@kernel'
             $projectDir: '%kernel.project_dir%'
             $logger: '@monolog.logger.contao'

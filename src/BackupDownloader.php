@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Heimseiten\ContaoBackupBundle;
 
+use Composer\InstalledVersions;
 use Contao\CoreBundle\Doctrine\Backup\Backup;
 use Contao\CoreBundle\Doctrine\Backup\BackupManager;
 use Contao\CoreBundle\Monolog\ContaoContext;
+use Doctrine\DBAL\Connection;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\HeaderUtils;
 use Symfony\Component\HttpFoundation\RequestStack;
@@ -43,8 +45,15 @@ final class BackupDownloader
         'files',
     ];
 
+    /**
+     * Version metadata written into every archive, so a restore can check the
+     * compatibility between the backup and the target installation up front.
+     */
+    public const MANIFEST_NAME = 'backup-manifest.json';
+
     public function __construct(
         private readonly BackupManager $backupManager,
+        private readonly Connection $connection,
         private readonly string $projectDir,
         private readonly LoggerInterface $logger,
         private readonly RequestStack $requestStack,
@@ -94,12 +103,14 @@ final class BackupDownloader
     {
         $this->liftTimeLimit();
 
-        $size = $this->computeZipSize(null);
+        $manifest = $this->buildManifest();
+        $size = $this->computeZipSize(null, $manifest);
 
-        $response = new StreamedResponse(function (): void {
+        $response = new StreamedResponse(function () use ($manifest): void {
             $this->flushOutputBuffers();
 
             $zip = $this->openZipStream();
+            $zip->addFile(self::MANIFEST_NAME, $manifest);
             $this->addProjectFiles($zip);
             $zip->finish();
         });
@@ -117,12 +128,14 @@ final class BackupDownloader
         // Create the database backup BEFORE streaming starts: should it fail, the user still
         // gets a clean error page (nothing has been sent yet).
         $backup = $this->createDatabaseBackup();
-        $size = $this->computeZipSize($backup);
+        $manifest = $this->buildManifest();
+        $size = $this->computeZipSize($backup, $manifest);
 
-        $response = new StreamedResponse(function () use ($backup): void {
+        $response = new StreamedResponse(function () use ($backup, $manifest): void {
             $this->flushOutputBuffers();
 
             $zip = $this->openZipStream();
+            $zip->addFile(self::MANIFEST_NAME, $manifest);
 
             $stream = $this->backupManager->readStream($backup);
 
@@ -144,6 +157,54 @@ final class BackupDownloader
         $this->backupManager->create($config);
 
         return $config->getBackup();
+    }
+
+    /**
+     * Builds the backup-manifest.json content: the versions this backup was created
+     * with plus the full installed package list. A restore uses it to check the
+     * compatibility with the target installation before anything is touched.
+     * Built once per download and reused for the size simulation, so the announced
+     * Content-Length always matches the streamed bytes.
+     */
+    private function buildManifest(): string
+    {
+        $packages = [];
+
+        foreach (InstalledVersions::getInstalledPackages() as $name) {
+            $packages[$name] = InstalledVersions::getPrettyVersion($name);
+        }
+
+        ksort($packages);
+
+        $databaseVersion = '';
+
+        try {
+            $databaseVersion = (string) $this->connection->fetchOne('SELECT VERSION()');
+        } catch (\Throwable) {
+            // Purely informational - a backup without it is still fine.
+        }
+
+        return json_encode(
+            [
+                'format' => 1,
+                'createdAt' => date(\DATE_ATOM),
+                'contaoVersion' => $this->packageVersion('contao/core-bundle'),
+                'phpVersion' => \PHP_VERSION,
+                'databaseVersion' => $databaseVersion,
+                'bundleVersion' => $this->packageVersion('heimseiten/contao-backup-bundle'),
+                'packages' => $packages,
+            ],
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES,
+        ) ?: '{}';
+    }
+
+    private function packageVersion(string $name): string|null
+    {
+        try {
+            return InstalledVersions::getPrettyVersion($name);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**
@@ -171,7 +232,7 @@ final class BackupDownloader
      * progress bar. Note: the size is taken just before the download starts - if a file changes
      * size during the (possibly long) download, the archive may end up truncated; just retry.
      */
-    private function computeZipSize(?Backup $backup): ?int
+    private function computeZipSize(?Backup $backup, string $manifest): ?int
     {
         $sink = fopen('php://temp', 'w+b');
 
@@ -183,6 +244,7 @@ final class BackupDownloader
 
         try {
             $zip = $this->openZipStream(OperationMode::SIMULATE_LAX, $sink);
+            $zip->addFile(self::MANIFEST_NAME, $manifest);
 
             if (null !== $backup) {
                 // Without a reliable DB size we cannot predict the exact ZIP size; better no

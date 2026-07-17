@@ -79,8 +79,35 @@ jeweils mit Optionen und einer Bestätigung durch Eintippen von **WIEDERHERSTELL
    erst nach dem letzten erfolgreichen Tausch. Seit dem Backup hinzugekommene Dateien
    entfallen dadurch vollständig.
 5. **Danach:** Caches werden geleert (HTTP-Cache, Pools; nach Datei-Restore auch
-   Twig/Contao/Übersetzungen) und optional läuft die Dateisynchronisation
-   (`contao:filesync`). Die Ergebnisseite listet jeden Schritt auf.
+   Twig/Contao/Übersetzungen), optional laufen die **Datenbank-Migrationen**
+   (`contao:migrate`, ohne Löschungen – empfohlen, gleicht das Schema an den
+   installierten Code an) und die Dateisynchronisation (`contao:filesync`).
+   Die Ergebnisseite listet jeden Schritt auf, prüft per Kurztest, ob die
+   Website antwortet, und zeigt – falls composer.json/lock eingespielt wurden –
+   wie weit die installierten Pakete vom eingespielten `composer.lock` abweichen
+   (mit direktem Link zum Contao Manager für das nötige `composer install`).
+
+### Versionsunterschiede zwischen Backup und Installation
+
+Jedes Backup enthält eine **`backup-manifest.json`** (Contao-/PHP-/DB-Version und
+die komplette installierte Paketliste des Quellsystems). Beim Hochladen prüft die
+Wiederherstellung damit die Kompatibilität, bevor irgendetwas verändert wird:
+
+- **Backup und Installation passen** (gleiche Contao-Feature-Version) → grüner Hinweis.
+- **Backup ist älter** (z. B. 5.3-Backup in einer 5.7-Installation) → gelber
+  Hinweis; die Migrations-Option schließt die Schema-Lücke direkt nach dem
+  Einspielen.
+- **Backup ist neuer** (z. B. 5.7-Backup in einer 5.3-Installation) → die
+  Wiederherstellung wird **blockiert** (die Datenbank wäre neuer als der Code,
+  ein Downgrade-Pfad existiert nicht) und lässt sich nur über eine zusätzliche
+  Risiko-Checkbox erzwingen – empfohlen ist stattdessen, die Ziel-Installation
+  zuerst zu aktualisieren.
+- Weicht die **PHP-Version** der Quelle nach oben ab, erscheint beim Einspielen
+  von composer.json/lock ein Warnhinweis (das Lock ist auf älterem PHP eventuell
+  nicht installierbar).
+
+Archive ohne Manifest (mit einer älteren Bundle-Version erstellt) funktionieren
+weiterhin – nur ohne diese Prüfung.
 
 `composer.json`/`composer.lock` werden standardmäßig **nicht** eingespielt (eigene
 Checkbox): `vendor/` ist nie Teil des Backups, nach dem Einspielen wäre also

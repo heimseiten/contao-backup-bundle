@@ -18,6 +18,10 @@ final class RestoreOptions
         public readonly bool $safetyBackup,
         /** Run the DBAFS synchronization (contao:filesync) afterwards. */
         public readonly bool $runFilesync,
+        /** Run contao:migrate (no deletes) after the database restore. */
+        public readonly bool $runMigrations = false,
+        /** Proceed although the backup stems from a NEWER Contao version (dangerous). */
+        public readonly bool $allowDowngrade = false,
     ) {
     }
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Heimseiten\ContaoBackupBundle;
 
+use Composer\InstalledVersions;
 use Contao\CoreBundle\Doctrine\Backup\Backup;
 use Contao\CoreBundle\Doctrine\Backup\BackupManager;
 use Contao\CoreBundle\Doctrine\Backup\Config\RestoreConfig;
@@ -12,7 +13,11 @@ use Contao\CoreBundle\Filesystem\VirtualFilesystemInterface;
 use Contao\CoreBundle\Monolog\ContaoContext;
 use Doctrine\DBAL\Connection;
 use Psr\Log\LoggerInterface;
+use Symfony\Bundle\FrameworkBundle\Console\Application;
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Output\BufferedOutput;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\HttpKernel\KernelInterface;
 
 /**
  * Restores a backup: replaces the database (all tables are dropped first, so nothing
@@ -37,9 +42,46 @@ final class BackupRestorer
         private readonly Connection $connection,
         private readonly RestoreArchiveStore $store,
         private readonly DbafsManager $dbafsManager,
+        private readonly KernelInterface $kernel,
         private readonly string $projectDir,
         private readonly LoggerInterface $logger,
     ) {
+    }
+
+    /**
+     * The Contao version of THIS installation (used for the compatibility check).
+     */
+    public function installedContaoVersion(): string|null
+    {
+        try {
+            return InstalledVersions::getPrettyVersion('contao/core-bundle');
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * True if the backup stems from a NEWER Contao feature version than this
+     * installation runs - restoring it would leave a database schema the older code
+     * cannot handle (there is no downgrade migration).
+     */
+    public function isDowngrade(string|null $sourceVersion): bool
+    {
+        $target = $this->installedContaoVersion();
+
+        if (null === $sourceVersion || null === $target) {
+            return false; // unknown - cannot judge
+        }
+
+        return version_compare($this->featureVersion($sourceVersion), $this->featureVersion($target), '>');
+    }
+
+    /**
+     * Reduces "5.3.48" to the feature version "5.3" (patch differences are harmless).
+     */
+    private function featureVersion(string $version): string
+    {
+        return preg_match('/^(\d+\.\d+)/', $version, $matches) ? $matches[1] : $version;
     }
 
     /**
@@ -94,6 +136,10 @@ final class BackupRestorer
             $this->clearCaches(false);
             $steps[] = ['caches_cleared', []];
 
+            if ($options->runMigrations) {
+                $this->runContaoMigrate($steps, $warnings);
+            }
+
             if ($options->runFilesync) {
                 $this->runFilesync($steps, $warnings);
             }
@@ -131,6 +177,13 @@ final class BackupRestorer
 
             if (!$restoreDatabase && !$restoreFiles) {
                 throw new RestoreException('Nothing to restore: the selected parts are not contained in the archive.');
+            }
+
+            // Never silently restore a backup of a NEWER Contao feature version: the code of
+            // this installation cannot handle the newer database schema and there is no
+            // downgrade path. Can only be overridden explicitly.
+            if ($restoreDatabase && !$options->allowDowngrade && $this->isDowngrade($info->sourceContaoVersion())) {
+                throw new RestoreException(\sprintf('The backup was created with Contao %s but this installation runs %s - restoring would downgrade the database below its schema version.', (string) $info->sourceContaoVersion(), (string) $this->installedContaoVersion()));
             }
 
             $this->log(\sprintf('Restore from uploaded archive "%s" started', $info->displayName));
@@ -181,16 +234,24 @@ final class BackupRestorer
             $this->clearCaches($restoreFiles);
             $steps[] = ['caches_cleared', []];
 
+            if ($restoreDatabase && $options->runMigrations) {
+                $this->runContaoMigrate($steps, $warnings);
+            }
+
             if ($options->runFilesync) {
                 $this->runFilesync($steps, $warnings);
             }
+
+            // The restored composer.lock is the exact package list of the source - show how
+            // far vendor/ deviates, so the result page can point to "composer install".
+            $composerDiff = \in_array('composer.lock', $stagedRoots ?? [], true) ? $this->computeComposerDiff() : null;
 
             // Success: remove the upload, the staging leftovers and the dump copy.
             $this->store->discard();
 
             $this->log(\sprintf('Restore from uploaded archive "%s" completed', $info->displayName));
 
-            return new RestoreResult($steps, $warnings, $safetyBackupName);
+            return new RestoreResult($steps, $warnings, $safetyBackupName, $composerDiff);
         } catch (\Throwable $t) {
             $this->log('Restore from uploaded archive failed: '.$t->getMessage(), true);
 
@@ -461,6 +522,92 @@ final class BackupRestorer
         } catch (\Throwable $t) {
             $this->log('DBAFS synchronization after the restore failed: '.$t->getMessage(), true);
             $warnings[] = ['filesync_failed', [$t->getMessage()]];
+        }
+    }
+
+    /**
+     * Runs contao:migrate exactly like the CLI would (framework migrations plus schema
+     * updates WITHOUT drops), so a backup from an older Contao version is consistent with
+     * the installed code right after the restore. --no-backup is essential: the automatic
+     * pre-migration backup would trigger the retention policy again. Never fatal - on
+     * failure the database is still fully restored and the command can be re-run manually.
+     *
+     * @param list<array{0: string, 1: list<int|string>}> $steps
+     * @param list<array{0: string, 1: list<int|string>}> $warnings
+     */
+    private function runContaoMigrate(array &$steps, array &$warnings): void
+    {
+        try {
+            $application = new Application($this->kernel);
+            $application->setAutoExit(false);
+            $application->setCatchExceptions(false);
+
+            $output = new BufferedOutput();
+            $exitCode = $application->run(
+                new ArrayInput([
+                    'command' => 'contao:migrate',
+                    '--no-backup' => true,
+                    '--no-interaction' => true,
+                ]),
+                $output,
+            );
+
+            if (0 === $exitCode) {
+                $steps[] = ['migrate_done', []];
+                $this->log('contao:migrate after the restore completed');
+            } else {
+                $tail = substr(trim($output->fetch()), -400);
+                $warnings[] = ['migrate_failed', [\sprintf('exit code %d: %s', $exitCode, $tail)]];
+                $this->log('contao:migrate after the restore failed: '.$tail, true);
+            }
+        } catch (\Throwable $t) {
+            $warnings[] = ['migrate_failed', [$t->getMessage()]];
+            $this->log('contao:migrate after the restore failed: '.$t->getMessage(), true);
+        }
+    }
+
+    /**
+     * Compares the (restored) composer.lock with vendor/composer/installed.json: how many
+     * packages would "composer install" add, remove or change. Pure file reading - no
+     * Composer run involved. Null if either file cannot be read.
+     *
+     * @return array{install: int, remove: int, change: int}|null
+     */
+    private function computeComposerDiff(): array|null
+    {
+        try {
+            $lock = json_decode((string) file_get_contents($this->projectDir.'/composer.lock'), true);
+            $installed = json_decode((string) file_get_contents($this->projectDir.'/vendor/composer/installed.json'), true);
+
+            if (!\is_array($lock) || !\is_array($installed)) {
+                return null;
+            }
+
+            $lockPackages = [];
+
+            foreach (array_merge($lock['packages'] ?? [], $lock['packages-dev'] ?? []) as $package) {
+                $lockPackages[(string) $package['name']] = (string) ($package['version'] ?? '');
+            }
+
+            $installedPackages = [];
+
+            foreach ($installed['packages'] ?? [] as $package) {
+                $installedPackages[(string) $package['name']] = (string) ($package['version'] ?? '');
+            }
+
+            $install = \count(array_diff_key($lockPackages, $installedPackages));
+            $remove = \count(array_diff_key($installedPackages, $lockPackages));
+            $change = 0;
+
+            foreach (array_intersect_key($lockPackages, $installedPackages) as $name => $version) {
+                if ($installedPackages[$name] !== $version) {
+                    ++$change;
+                }
+            }
+
+            return ['install' => $install, 'remove' => $remove, 'change' => $change];
+        } catch (\Throwable) {
+            return null;
         }
     }
 

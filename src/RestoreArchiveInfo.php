@@ -30,7 +30,23 @@ final class RestoreArchiveInfo
         public readonly int $ignoredCount,
         /** Symlink entries (never extracted). */
         public readonly int $symlinkCount,
+        /** Decoded backup-manifest.json (versions of the source installation) or null. */
+        public readonly array|null $manifest = null,
     ) {
+    }
+
+    public function sourceContaoVersion(): string|null
+    {
+        $version = $this->manifest['contaoVersion'] ?? null;
+
+        return \is_string($version) && '' !== $version ? $version : null;
+    }
+
+    public function sourcePhpVersion(): string|null
+    {
+        $version = $this->manifest['phpVersion'] ?? null;
+
+        return \is_string($version) && '' !== $version ? $version : null;
     }
 
     public function hasDatabase(): bool

@@ -4,8 +4,8 @@
 <?php $l = $this->lang; ?>
 
 <?php // ---- Section 1: automatic database backups (retention settings + current list) ---- ?>
-<fieldset class="backup-section" data-backup-section="auto">
-  <legend class="backup-section-legend" data-section-toggle><?= $l['sectionAuto'] ?></legend>
+<details class="backup-section" data-backup-section="auto" open>
+  <summary class="backup-section-legend"><?= $l['sectionAuto'] ?></summary>
   <div class="backup-section-body">
 
     <?php if ($this->settingsMessage): ?>
@@ -57,11 +57,11 @@
     <?php endif; ?>
 
   </div>
-</fieldset>
+</details>
 
 <?php // ---- Section 2: manual backup downloads ---- ?>
-<fieldset class="backup-section" data-backup-section="manual">
-  <legend class="backup-section-legend" data-section-toggle><?= $l['sectionManual'] ?></legend>
+<details class="backup-section" data-backup-section="manual">
+  <summary class="backup-section-legend"><?= $l['sectionManual'] ?></summary>
   <div class="backup-section-body">
 
 <?php if ($this->intro): ?>
@@ -136,12 +136,12 @@
 </div>
 
   </div>
-</fieldset>
+</details>
 
 <?php // ---- Section 3: restore ---- ?>
 <?php $restoreActive = $this->restoreError || $this->restoreResultSteps || $this->archive || $this->archiveError; ?>
-<fieldset class="backup-section" data-backup-section="restore" id="restore"<?= $restoreActive ? ' data-force-open' : '' ?>>
-  <legend class="backup-section-legend" data-section-toggle><?= $l['sectionRestore'] ?></legend>
+<details class="backup-section" data-backup-section="restore" id="restore"<?= $restoreActive ? ' open data-force-open' : '' ?>>
+  <summary class="backup-section-legend"><?= $l['sectionRestore'] ?></summary>
   <div class="backup-section-body">
 
 <div class="tl_message">
@@ -324,7 +324,7 @@
 </div>
 
   </div>
-</fieldset>
+</details>
 
 <style>
   .backup-spinner {
@@ -355,11 +355,11 @@
     border-radius: var(--border-radius, 3px); min-width: 0;
   }
   .backup-section-legend {
-    padding: .7em 1em; font-weight: 700; cursor: pointer; user-select: none; width: 100%;
+    padding: .7em 1em; font-weight: 700; cursor: pointer; user-select: none; list-style: none;
   }
-  .backup-section-legend::before { content: "▾"; display: inline-block; margin-right: .55em; transition: transform .15s; }
-  .backup-section--zu .backup-section-legend::before { transform: rotate(-90deg); }
-  .backup-section--zu .backup-section-body { display: none; }
+  .backup-section-legend::-webkit-details-marker { display: none; }
+  .backup-section-legend::before { content: "▸"; display: inline-block; margin-right: .55em; transition: transform .15s; }
+  .backup-section[open] > .backup-section-legend::before { transform: rotate(90deg); }
   .backup-section-body { padding: .4em 1em 1em; }
   .backup-section-body > .tl_tbox { padding-top: .2em; }
   .backup-settings-form { max-width: 46em; }
@@ -661,26 +661,33 @@
 <script>
 (function () {
   // ---- Collapsible sections -----------------------------------------------------------
-  // The open/closed state of the three sections is remembered per browser. A section with
-  // fresh results (data-force-open) always opens, so messages are never hidden.
+  // Native <details>: by default only "automatic database backups" is open. A remembered
+  // per-browser choice wins, and a section with fresh restore results (data-force-open)
+  // always opens, so messages are never hidden.
   var SECTION_KEY = 'contao_backup_sections';
+  var sectionsInitializing = true;
 
   function readSections() {
     try { return JSON.parse(localStorage.getItem(SECTION_KEY) || '{}') || {}; } catch (e) { return {}; }
   }
 
-  document.querySelectorAll('.backup-section').forEach(function (section) {
+  document.querySelectorAll('details.backup-section').forEach(function (section) {
     var name = section.getAttribute('data-backup-section');
-    var closed = readSections()[name] === true && !section.hasAttribute('data-force-open');
-    section.classList.toggle('backup-section--zu', closed);
+    var state = readSections();
 
-    section.querySelector('[data-section-toggle]').addEventListener('click', function () {
-      var nowClosed = section.classList.toggle('backup-section--zu');
-      var state = readSections();
-      state[name] = nowClosed;
-      try { localStorage.setItem(SECTION_KEY, JSON.stringify(state)); } catch (e) {}
+    if (!section.hasAttribute('data-force-open') && name in state) {
+      section.open = state[name] !== true; // stored value = "closed?"
+    }
+
+    section.addEventListener('toggle', function () {
+      if (sectionsInitializing) { return; } // programmatic init, not a user choice
+      var s = readSections();
+      s[name] = !section.open;
+      try { localStorage.setItem(SECTION_KEY, JSON.stringify(s)); } catch (e) {}
     });
   });
+
+  setTimeout(function () { sectionsInitializing = false; }, 0);
 
   // ---- Restore section ----------------------------------------------------------------
   var UPLOAD_BUSY = <?= json_encode($this->lang['uploadBusy']) ?>;

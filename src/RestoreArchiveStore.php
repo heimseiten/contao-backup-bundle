@@ -333,7 +333,9 @@ final class RestoreArchiveStore
 
     private function partPath(string $uploadId): string
     {
-        if (!preg_match('/^[a-f0-9-]{10,64}$/', $uploadId)) {
+        // Accept both a crypto.randomUUID() and the plain-HTTP hex fallback. Letters/digits,
+        // dashes and underscores only - no dot or slash, so the id can never traverse paths.
+        if (!preg_match('/^[a-zA-Z0-9_-]{10,64}$/', $uploadId)) {
             throw new RestoreException('Invalid upload id.');
         }
 

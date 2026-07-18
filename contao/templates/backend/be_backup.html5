@@ -792,9 +792,17 @@
     prog.hidden = false;
     bar.value = 0;
 
-    var id = (window.crypto && crypto.randomUUID)
-      ? crypto.randomUUID()
-      : String(Date.now()) + '-' + Math.random().toString(36).slice(2) + '-' + Math.random().toString(36).slice(2);
+    // A hex upload id the server accepts (its regex allows [a-z0-9-]). crypto.randomUUID
+    // only exists in a secure context (HTTPS); over plain HTTP or in older browsers we
+    // fall back to a hex string built from Math.random - NOT toString(36), which would
+    // include letters g-z the server rejects ("Invalid upload id").
+    var id;
+    if (window.crypto && crypto.randomUUID) {
+      id = crypto.randomUUID();
+    } else {
+      id = '';
+      for (var idi = 0; idi < 32; idi++) { id += Math.floor(Math.random() * 16).toString(16); }
+    }
 
     var action = uploadForm.getAttribute('action');
     var token = uploadForm.querySelector('input[name="REQUEST_TOKEN"]').value;

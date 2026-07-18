@@ -411,6 +411,7 @@
   .restore-btn[data-gate-locked] { opacity: .5; cursor: not-allowed; }
   .restore-steps { margin: .5em 0; padding-left: 1.5em; line-height: 1.8; }
   .restore-upload-error { margin-top: .8em; }
+  .tl_message + form[data-upload-form] { margin-top: 1em; }
   .restore-archive-summary { margin-bottom: 1em; }
   .restore-compat { margin: .8em 0; padding: .6em .8em; border-radius: var(--border-radius, 3px); line-height: 1.5; }
   .restore-compat--ok { border: 1px solid #2e7d32; background: rgba(46, 125, 50, .1); }

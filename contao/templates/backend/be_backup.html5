@@ -351,7 +351,9 @@
 
   /* Collapsible sections */
   .backup-section {
-    margin: 0 0 1.2em; padding: 0; border: 1px solid var(--border, #ddd);
+    /* 18px left/right matches Contao's own .sub_headline inset, so the boxes line up
+       with the module heading instead of sticking to the content edges. */
+    margin: 0 18px 1.2em; padding: 0; border: 1px solid var(--border, #ddd);
     border-radius: var(--border-radius, 3px); min-width: 0;
   }
   .backup-section-legend {

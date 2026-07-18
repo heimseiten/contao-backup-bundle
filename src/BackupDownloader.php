@@ -140,7 +140,19 @@ final class BackupDownloader
             $stream = $this->backupManager->readStream($backup);
 
             if (\is_resource($stream)) {
-                $zip->addFileFromStream('database/'.$backup->getFilename(), $stream);
+                // Pass the same exactSize the up-front simulation used, so a drift between
+                // the predicted and the actually streamed dump size fails loudly (ZipStream
+                // throws) instead of silently producing a ZIP that mismatches the announced
+                // Content-Length and gets truncated by the browser. Only when the size is
+                // known (>0) - matching computeZipSize(), which skips the length otherwise.
+                $dbSize = $backup->getSize();
+
+                if ($dbSize > 0) {
+                    $zip->addFileFromStream('database/'.$backup->getFilename(), $stream, exactSize: $dbSize);
+                } else {
+                    $zip->addFileFromStream('database/'.$backup->getFilename(), $stream);
+                }
+
                 fclose($stream);
             }
 

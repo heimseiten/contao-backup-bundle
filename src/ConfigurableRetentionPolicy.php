@@ -43,7 +43,16 @@ final class ConfigurableRetentionPolicy implements RetentionPolicyInterface
             return $allBackups;
         }
 
-        return (new RetentionPolicy($settings['keepMax'], $settings['keepIntervals']))->apply($currentBackup, $allBackups);
+        try {
+            // A hand-edited settings file could contain an invalid interval, which the
+            // RetentionPolicy constructor rejects. Never let that break backup creation
+            // (which calls this on every run) - fall back to the Contao configuration.
+            $policy = new RetentionPolicy($settings['keepMax'], $settings['keepIntervals']);
+        } catch (\Throwable) {
+            return $this->inner->apply($currentBackup, $allBackups);
+        }
+
+        return $policy->apply($currentBackup, $allBackups);
     }
 
     /**

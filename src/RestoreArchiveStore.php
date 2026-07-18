@@ -20,6 +20,12 @@ final class RestoreArchiveStore
      */
     private const DATABASE_ENTRY_REGEX = '@^database/[^/]*__(\d{14})\.sql(\.gz)?$@';
 
+    /**
+     * The manifest is read fully into memory, so its size is capped (1 MiB is far more
+     * than the real ~10-50 KB manifest ever needs).
+     */
+    private const MAX_MANIFEST_BYTES = 1048576;
+
     public function __construct(private readonly string $projectDir)
     {
     }
@@ -107,6 +113,14 @@ final class RestoreArchiveStore
         $target = fopen($part, 'ab');
 
         if (!\is_resource($source) || !\is_resource($target)) {
+            if (\is_resource($source)) {
+                fclose($source);
+            }
+
+            if (\is_resource($target)) {
+                fclose($target);
+            }
+
             throw new RestoreException('Could not open the chunk or the partial upload file for writing.');
         }
 
@@ -222,8 +236,13 @@ final class RestoreArchiveStore
 
             // Version metadata of the source installation (never extracted to disk).
             if (BackupDownloader::MANIFEST_NAME === $name) {
-                $decoded = json_decode((string) $zip->getFromIndex($i), true);
-                $manifest = \is_array($decoded) ? $decoded : null;
+                // Read the manifest fully into memory - cap the size so a maliciously huge
+                // manifest entry cannot exhaust the memory limit.
+                if ((int) $stat['size'] <= self::MAX_MANIFEST_BYTES) {
+                    $decoded = json_decode((string) $zip->getFromIndex($i), true);
+                    $manifest = \is_array($decoded) ? $decoded : null;
+                }
+
                 continue;
             }
 
@@ -341,19 +360,27 @@ final class RestoreArchiveStore
     }
 
     /**
-     * Rejects entry names that could escape the extraction directory (Zip Slip): parent
-     * segments, absolute paths, backslashes, drive letters or control characters. One bad
+     * True if an entry name could escape the extraction directory (Zip Slip): parent
+     * segments, absolute paths, backslashes, drive letters or control characters.
+     * Public so the extraction step can re-check every entry right before writing it
+     * (defense in depth: the archive on disk could have been swapped after analyze()).
+     */
+    public function isUnsafeEntryName(string $name): bool
+    {
+        return str_contains($name, '\\')
+            || str_starts_with($name, '/')
+            || (bool) preg_match('/(?:^|\/)\.\.(?:\/|$)/', $name)
+            || (bool) preg_match('/^[a-zA-Z]:/', $name)
+            || (bool) preg_match('/[\x00-\x1f]/', $name);
+    }
+
+    /**
+     * Rejects entry names that could escape the extraction directory (Zip Slip). One bad
      * entry rejects the whole archive - a manipulated backup must not be half-restored.
      */
     private function assertSafeEntryName(string $name, \ZipArchive $zip): void
     {
-        $unsafe = str_contains($name, '\\')
-            || str_starts_with($name, '/')
-            || preg_match('/(?:^|\/)\.\.(?:\/|$)/', $name)
-            || preg_match('/^[a-zA-Z]:/', $name)
-            || preg_match('/[\x00-\x1f]/', $name);
-
-        if ($unsafe) {
+        if ($this->isUnsafeEntryName($name)) {
             $zip->close();
 
             throw new RestoreException(\sprintf('The archive contains an unsafe entry name ("%s") and was rejected.', $name));

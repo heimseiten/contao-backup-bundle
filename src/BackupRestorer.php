@@ -64,6 +64,11 @@ final class BackupRestorer
      * True if the backup stems from a NEWER Contao feature version than this
      * installation runs - restoring it would leave a database schema the older code
      * cannot handle (there is no downgrade migration).
+     *
+     * ADVISORY ONLY, not a security boundary: the source version comes from the manifest
+     * inside the uploaded archive, which the uploader controls (it can be missing or
+     * edited). This guards against an honest mistake, not a determined admin - which is
+     * fine, because an admin may legitimately restore anything anyway.
      */
     public function isDowngrade(string|null $sourceVersion): bool
     {
@@ -386,6 +391,14 @@ final class BackupRestorer
             }
 
             $name = (string) $stat['name'];
+
+            // Re-check every entry name right before writing it (defense in depth): analyze()
+            // already validated the archive, but it is a separate open() on the on-disk file,
+            // which a concurrent upload could have swapped in between. One bad entry aborts.
+            if ($this->store->isUnsafeEntryName($name)) {
+                throw new RestoreException(\sprintf('The archive contains an unsafe entry name ("%s") and was rejected.', $name));
+            }
+
             $root = $this->store->matchBackupPath(rtrim($name, '/'));
 
             if (null === $root || !\in_array($root, $pathsToRestore, true)) {
@@ -418,10 +431,9 @@ final class BackupRestorer
 
     /**
      * Replaces the live paths with the staged ones: the current path is renamed aside, the
-     * staged path renamed into place (same filesystem, so both renames are atomic). If
-     * anything fails mid-way, the already swapped paths are rolled back. The old paths are
-     * only deleted after ALL swaps succeeded - so the previous state survives until the
-     * very end.
+     * staged path moved into place. If anything fails mid-way, the already swapped paths are
+     * rolled back. The old paths are only deleted after ALL swaps succeeded - so the previous
+     * state survives until the very end.
      *
      * @param list<string> $roots
      */
@@ -452,16 +464,21 @@ final class BackupRestorer
                     $this->rename($target, $old);
                 }
 
-                $fs->mkdir(\dirname($target));
-                $this->rename($staged, $target);
-
+                // Register the swap BEFORE moving the staged path into place: should the move
+                // below fail, the rollback must still restore the live path that was just
+                // moved aside (otherwise the target would simply be gone).
                 $swapped[] = [$target, $hadTarget ? $old : null];
+
+                $fs->mkdir(\dirname($target));
+                $this->movePath($staged, $target);
             }
         } catch (\Throwable $t) {
             foreach (array_reverse($swapped) as [$target, $old]) {
                 try {
                     $fs->remove($target);
 
+                    // $old sits next to $target (same directory), so this rename is always
+                    // intra-filesystem and safe.
                     if (null !== $old) {
                         @rename($old, $target);
                     }
@@ -478,6 +495,30 @@ final class BackupRestorer
                 $fs->remove($old);
             }
         }
+    }
+
+    /**
+     * Moves a path into place. Uses an atomic rename when source and target share a
+     * filesystem (the normal case). Across filesystems (e.g. a separately mounted var/,
+     * where the staging dir and the project dir differ) rename fails with EXDEV and PHP does
+     * not fall back - so we copy and delete instead. Not atomic, but swapPaths' rollback
+     * covers a mid-way failure, so no data is lost.
+     */
+    private function movePath(string $from, string $to): void
+    {
+        if (@rename($from, $to)) {
+            return;
+        }
+
+        $fs = new Filesystem();
+
+        if (is_dir($from)) {
+            $fs->mirror($from, $to);
+        } else {
+            $fs->copy($from, $to, true);
+        }
+
+        $fs->remove($from);
     }
 
     /**
@@ -629,19 +670,21 @@ final class BackupRestorer
      */
     private function copyStreamToFile($source, string $targetFile): void
     {
-        (new Filesystem())->mkdir(\dirname($targetFile));
+        try {
+            (new Filesystem())->mkdir(\dirname($targetFile));
 
-        $target = fopen($targetFile, 'wb');
+            $target = fopen($targetFile, 'wb');
 
-        if (!\is_resource($target)) {
+            if (!\is_resource($target)) {
+                throw new RestoreException(\sprintf('Could not write "%s".', $targetFile));
+            }
+
+            stream_copy_to_stream($source, $target);
+            fclose($target);
+        } finally {
+            // Always release the source handle, even if mkdir/fopen threw above.
             fclose($source);
-
-            throw new RestoreException(\sprintf('Could not write "%s".', $targetFile));
         }
-
-        stream_copy_to_stream($source, $target);
-        fclose($source);
-        fclose($target);
     }
 
     private function rename(string $from, string $to): void

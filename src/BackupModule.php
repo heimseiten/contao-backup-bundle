@@ -260,7 +260,7 @@ class BackupModule extends BackendModule
                 $info = $store->analyze();
 
                 if ($restorer->isDowngrade($info->sourceContaoVersion())) {
-                    $this->restoreError = \sprintf($lang['downgradeBlocked'], (string) $info->sourceContaoVersion(), (string) $restorer->installedContaoVersion());
+                    $this->restoreError = \sprintf($lang['downgradeBlocked'], StringUtil::specialchars((string) $info->sourceContaoVersion()), StringUtil::specialchars((string) $restorer->installedContaoVersion()));
 
                     return;
                 }
@@ -282,7 +282,9 @@ class BackupModule extends BackendModule
         try {
             $this->restoreResult = $restore(System::getContainer()->get(BackupRestorer::class));
         } catch (RestoreException $e) {
-            $this->restoreError = \sprintf($lang['restoreFailed'], $e->getMessage());
+            // The message can embed archive entry names/paths - escape before it is
+            // interpolated into the HTML-carrying language string and rendered raw.
+            $this->restoreError = \sprintf($lang['restoreFailed'], StringUtil::specialchars($e->getMessage()));
             $this->restoreErrorSafetyBackup = $e->safetyBackupName;
         }
     }
@@ -309,7 +311,7 @@ class BackupModule extends BackendModule
             $policy->saveSettings($keepMax, $intervals);
             $this->settingsMessage = $lang['settingsSaved'];
         } catch (\Throwable $e) {
-            $this->settingsError = \sprintf($lang['settingsInvalid'], $e->getMessage());
+            $this->settingsError = \sprintf($lang['settingsInvalid'], StringUtil::specialchars($e->getMessage()));
         }
     }
 
@@ -373,11 +375,19 @@ class BackupModule extends BackendModule
         if ($store->hasArchive()) {
             try {
                 $info = $store->analyze();
+
+                // Values derived from the uploaded archive (its file names and the
+                // backup-manifest.json) are attacker-controlled and rendered raw by the
+                // .html5 template - escape everything that reaches the template as text.
+                // The compat/phpMismatch LOGIC uses $info directly (numeric-prefix compare),
+                // so escaping the display copies here does not affect it.
+                $esc = static fn (string|null $v): string|null => null === $v ? null : StringUtil::specialchars($v);
+
                 $archive = [
-                    'name' => $info->displayName,
+                    'name' => $esc($info->displayName),
                     'size' => $this->formatBytes($info->archiveSize),
                     'hasDatabase' => $info->hasDatabase(),
-                    'databaseName' => null !== $info->databaseEntry ? basename($info->databaseEntry) : null,
+                    'databaseName' => null !== $info->databaseEntry ? $esc(basename($info->databaseEntry)) : null,
                     'databaseDate' => null !== $info->databaseCreatedAt ? Date::parse(Config::get('datimFormat'), $info->databaseCreatedAt->getTimestamp()) : null,
                     'hasFiles' => $info->hasFiles(),
                     'paths' => $info->paths,
@@ -385,13 +395,13 @@ class BackupModule extends BackendModule
                     'uncompressed' => $this->formatBytes($info->uncompressedBytes),
                     'hasComposer' => [] !== $info->composerPaths(),
                     'ignored' => $info->ignoredCount + $info->symlinkCount,
-                    'sourceContaoVersion' => $info->sourceContaoVersion(),
-                    'sourcePhpVersion' => $info->sourcePhpVersion(),
+                    'sourceContaoVersion' => $esc($info->sourceContaoVersion()),
+                    'sourcePhpVersion' => $esc($info->sourcePhpVersion()),
                     'compat' => $this->compatState($restorer, $info),
                     'phpMismatch' => $this->phpMismatch($info),
                 ];
             } catch (RestoreException $e) {
-                $archiveError = \sprintf($lang['archiveInvalid'], $e->getMessage());
+                $archiveError = \sprintf($lang['archiveInvalid'], StringUtil::specialchars($e->getMessage()));
             }
         }
 
@@ -473,7 +483,14 @@ class BackupModule extends BackendModule
         $lang = $this->loadLanguage();
 
         return array_map(
-            static fn (array $item): string => vsprintf($lang['step_'.$item[0]] ?? $item[0], $item[1]),
+            static function (array $item) use ($lang): string {
+                // Escape the parameters (e.g. a restored dump's file name, which comes from
+                // the uploaded archive and could carry HTML) before they go into the - plain,
+                // HTML-free - step/warning strings and are rendered raw by the .html5 template.
+                $params = array_map(static fn ($p) => StringUtil::specialchars((string) $p), $item[1]);
+
+                return vsprintf($lang['step_'.$item[0]] ?? $item[0], $params);
+            },
             $items,
         );
     }

@@ -48,6 +48,7 @@ $GLOBALS['TL_LANG']['tl_backup']['serverRestoreExplain']  = 'Diese Datenbank-Bac
 $GLOBALS['TL_LANG']['tl_backup']['serverRestoreEmpty']    = 'In var/backups liegen keine Datenbank-Backups.';
 $GLOBALS['TL_LANG']['tl_backup']['uploadTitle']           = 'Backup-Archiv (ZIP) hochladen und wiederherstellen';
 $GLOBALS['TL_LANG']['tl_backup']['uploadExplain']         = 'Ein mit diesem Bundle heruntergeladenes Voll- oder Dateien-Backup (ZIP). Der Upload erfolgt in kleinen Teilen, dadurch sind auch große Archive trotz PHP-Upload-Limits möglich.';
+$GLOBALS['TL_LANG']['tl_backup']['uploadComposerHint']    = '<strong>Vorab-Hinweis:</strong> Enthält das Archiv <code>composer.json</code>/<code>composer.lock</code> und spielst du diese mit ein (z. B. beim Übertragen in eine andere/frische Installation), ist danach in der Regel ein <strong>„composer install"</strong> nötig, damit die installierten Erweiterungen exakt zum eingespielten Stand passen. Im Contao Manager: <strong>Systemwartung → Composer-Abhängigkeiten → „Installer ausführen"</strong> (danach den Manager einmal neu laden). Nach der Wiederherstellung wird dir das hier ebenfalls angezeigt.';
 $GLOBALS['TL_LANG']['tl_backup']['uploadButton']          = 'Archiv hochladen';
 $GLOBALS['TL_LANG']['tl_backup']['uploadBusy']            = 'Wird hochgeladen …';
 $GLOBALS['TL_LANG']['tl_backup']['uploadNotZip']          = 'Bitte eine ZIP-Datei hochladen.';

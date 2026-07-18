@@ -245,6 +245,8 @@
       <?php elseif (!$this->archive): ?>
         <p class="restore-explain"><?= $l['uploadExplain'] ?></p>
 
+        <div class="tl_message"><p class="tl_info"><?= $l['uploadComposerHint'] ?></p></div>
+
         <form method="post" action="<?= $this->action ?>#restore" enctype="multipart/form-data" data-turbo="false" data-upload-form data-max-chunk="<?= $this->maxChunkSize ?>">
           <input type="hidden" name="FORM_SUBMIT" value="tl_backup_upload">
           <input type="hidden" name="REQUEST_TOKEN" value="<?= $this->requestToken ?>">

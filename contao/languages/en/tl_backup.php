@@ -48,6 +48,7 @@ $GLOBALS['TL_LANG']['tl_backup']['serverRestoreExplain']  = 'These database back
 $GLOBALS['TL_LANG']['tl_backup']['serverRestoreEmpty']    = 'There are no database backups in var/backups.';
 $GLOBALS['TL_LANG']['tl_backup']['uploadTitle']           = 'Upload and restore a backup archive (ZIP)';
 $GLOBALS['TL_LANG']['tl_backup']['uploadExplain']         = 'A full or files backup (ZIP) downloaded with this bundle. The upload is sent in small chunks, so even huge archives work despite PHP upload limits.';
+$GLOBALS['TL_LANG']['tl_backup']['uploadComposerHint']    = '<strong>Heads-up:</strong> If the archive contains <code>composer.json</code>/<code>composer.lock</code> and you restore them (e.g. when moving to another/fresh installation), a <strong>"composer install"</strong> is usually needed afterwards so the installed extensions exactly match the restored state. In the Contao Manager: <strong>System maintenance → Composer dependencies → "Run installer"</strong> (then reload the manager once). This is shown here again after the restore.';
 $GLOBALS['TL_LANG']['tl_backup']['uploadButton']          = 'Upload archive';
 $GLOBALS['TL_LANG']['tl_backup']['uploadBusy']            = 'Uploading …';
 $GLOBALS['TL_LANG']['tl_backup']['uploadNotZip']          = 'Please upload a ZIP file.';

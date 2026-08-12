@@ -231,6 +231,18 @@ den Prozent-Balken die Kompression für den Download abschalten – in `public/.
 
 Der Download selbst ist davon nie betroffen, nur die Prozentanzeige.
 
+**Kein Prozent-Balken bei sehr vielen Dateien:** Der Vorab-Durchlauf, der die exakte
+ZIP-Größe ermittelt, hält für jede Datei einen Eintrag im Speicher (gemessen ~4 KB). Bei
+Installationen mit Zehntausenden Dateien – etwa wenn ein komplettes Icon-Paket unter
+`files/` liegt – überschreitet das ein typisches `memory_limit` von 128 MB (bei 34.000
+Dateien rund 150 MB). Das Bundle zählt die Dateien deshalb vorher und **überspringt die
+Größenberechnung**, wenn sie nicht sicher in den verfügbaren Speicher passt: der Download
+läuft dann ohne Prozentanzeige, statt den Request abzubrechen. Der Grund steht im Log
+(„progress bar disabled – simulating the archive for N files would need …"). Wer den Balken
+möchte, hebt entweder das `memory_limit` an oder verkleinert den Dateibestand. Das
+eigentliche Packen ist davon unabhängig und bleibt sparsam (bei denselben 34.000 Dateien
+rund 42 MB), weil es jeden Eintrag sofort abschließt.
+
 ## Installation
 
 ```bash

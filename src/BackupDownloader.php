@@ -51,6 +51,18 @@ final class BackupDownloader
      */
     public const MANIFEST_NAME = 'backup-manifest.json';
 
+    /**
+     * Memory ZipStream's simulate pass needs per file, measured on a 34k-file site
+     * (142 MiB total): 4 KiB plus a margin. Used to decide whether simulating is safe at all.
+     */
+    private const SIMULATE_BYTES_PER_FILE = 4608;
+
+    /**
+     * Share of the still available memory the simulation may claim. The rest is left to the
+     * framework and the response, which keep working while the archive streams.
+     */
+    private const SIMULATE_MEMORY_SHARE = 0.6;
+
     public function __construct(
         private readonly BackupManager $backupManager,
         private readonly Connection $connection,
@@ -246,6 +258,10 @@ final class BackupDownloader
      */
     private function computeZipSize(?Backup $backup, string $manifest): ?int
     {
+        if (!$this->simulationFitsInMemory()) {
+            return null;
+        }
+
         $sink = fopen('php://temp', 'w+b');
 
         if (!\is_resource($sink)) {
@@ -299,36 +315,105 @@ final class BackupDownloader
         }
     }
 
+    /**
+     * Guards the size computation above against running out of memory.
+     *
+     * Unlike the streaming pass (which finalises every entry immediately and stays flat),
+     * ZipStream's simulate pass holds one object per file until finish(); measured on a site
+     * with 34k files that is about 4 KB each, so roughly 140 MB - more than the common 128M
+     * limit. And a memory error is a PHP FATAL, not a catchable Throwable: without this check
+     * the whole request dies with "Internal Server Error" instead of falling back to a
+     * download without a progress bar. Hence: count the files first (constant memory) and
+     * only simulate when the estimate comfortably fits.
+     */
+    private function simulationFitsInMemory(): bool
+    {
+        $limit = $this->memoryLimitInBytes();
+
+        if (null === $limit) {
+            return true;
+        }
+
+        $available = $limit - memory_get_usage(true);
+        $files = iterator_count($this->projectFiles());
+        $needed = $files * self::SIMULATE_BYTES_PER_FILE;
+
+        if ($needed <= $available * self::SIMULATE_MEMORY_SHARE) {
+            return true;
+        }
+
+        $this->logProgressBarDisabled(sprintf(
+            'simulating the archive for %d files would need about %d MiB, but only %d MiB of the %d MiB memory limit are available',
+            $files,
+            (int) round($needed / 1024 / 1024),
+            (int) round($available / 1024 / 1024),
+            (int) round($limit / 1024 / 1024),
+        ));
+
+        return false;
+    }
+
+    /**
+     * The memory_limit in bytes, or null when there is none (-1) and nothing to guard against.
+     */
+    private function memoryLimitInBytes(): ?int
+    {
+        $limit = trim((string) \ini_get('memory_limit'));
+
+        if ('' === $limit || '-1' === $limit) {
+            return null;
+        }
+
+        $value = (int) $limit;
+
+        return match (strtoupper(substr($limit, -1))) {
+            'G' => $value * 1024 * 1024 * 1024,
+            'M' => $value * 1024 * 1024,
+            'K' => $value * 1024,
+            default => $value,
+        };
+    }
+
     private function addProjectFiles(ZipStream $zip): void
+    {
+        foreach ($this->projectFiles() as $localPath => $absolutePath) {
+            $zip->addFileFromPath($localPath, $absolutePath);
+        }
+    }
+
+    /**
+     * Every file that goes into the archive, as localPath => absolutePath. A generator, so
+     * walking it costs constant memory no matter how many files the site has - and so the
+     * up-front count cannot drift from what actually gets packed.
+     */
+    private function projectFiles(): \Generator
     {
         foreach (self::PATHS as $relativePath) {
             $absolutePath = $this->projectDir.'/'.$relativePath;
 
             if (is_file($absolutePath)) {
-                $zip->addFileFromPath($relativePath, $absolutePath);
-            } elseif (is_dir($absolutePath)) {
-                $this->addDirectory($zip, $absolutePath, $relativePath);
-            }
-        }
-    }
+                yield $relativePath => $absolutePath;
 
-    private function addDirectory(ZipStream $zip, string $absoluteDir, string $relativeDir): void
-    {
-        $iterator = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($absoluteDir, \FilesystemIterator::SKIP_DOTS),
-            \RecursiveIteratorIterator::SELF_FIRST,
-        );
-
-        foreach ($iterator as $item) {
-            // Never follow symlinks: they could point outside the project (e.g. a planted
-            // files/link -> /etc/passwd) and have no place in a site backup.
-            if ($item->isLink()) {
                 continue;
             }
 
-            if ($item->isFile() && $item->isReadable()) {
-                $localPath = $relativeDir.'/'.substr($item->getPathname(), \strlen($absoluteDir) + 1);
-                $zip->addFileFromPath($localPath, $item->getPathname());
+            if (!is_dir($absolutePath)) {
+                continue;
+            }
+
+            $iterator = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($absolutePath, \FilesystemIterator::SKIP_DOTS),
+                \RecursiveIteratorIterator::SELF_FIRST,
+            );
+
+            foreach ($iterator as $item) {
+                // Never follow symlinks: they could point outside the project (e.g. a planted
+                // files/link -> /etc/passwd) and have no place in a site backup.
+                if ($item->isLink() || !$item->isFile() || !$item->isReadable()) {
+                    continue;
+                }
+
+                yield $relativePath.'/'.substr($item->getPathname(), \strlen($absolutePath) + 1) => $item->getPathname();
             }
         }
     }

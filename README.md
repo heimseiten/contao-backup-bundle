@@ -11,9 +11,13 @@ Fügt im Backend unter **System** den Punkt **„Sicherung"** hinzu, mit drei Do
 - **Nur Datenbank herunterladen** – das Datenbank-Backup (Contaos eigenes Backup,
   gzip-komprimiertes SQL; wird zusätzlich in `var/backups` abgelegt).
 
+Jede der drei Sicherungen lässt sich wahlweise herunterladen **oder direkt auf dem
+Server ablegen** (siehe [Auf dem Server speichern](#auf-dem-server-speichern-statt-herunterladen)) –
+auf Wunsch auch [automatisch per Cron](#automatische-voll-backups).
+
 Außerdem können Backups direkt im Backend **wiederhergestellt** werden – aus
-`var/backups` oder per Upload eines heruntergeladenen Backup-ZIPs (siehe
-[Wiederherstellung](#wiederherstellung-restore)).
+`var/backups`, per Upload eines heruntergeladenen Backup-ZIPs oder aus einem Archiv, das
+bereits auf dem Server liegt (siehe [Wiederherstellung](#wiederherstellung-restore)).
 
 ## Enthaltene Pfade (Dateien- und Voll-Backup)
 
@@ -39,6 +43,95 @@ ein Backup von `vendor/` ist daher unnötig. Genauso bewusst ausgelassen: `var/`
 (Cache/Logs, regeneriert sich) und `public/` (Einstiegspunkt + per
 `contao:install`/`assets:install` neu erzeugte Assets).
 
+## Auf dem Server speichern statt herunterladen
+
+Unter jedem der drei Buttons liegt ein zweiter: **„Auf dem Server speichern"**. Die
+Sicherung wandert dann nach `var/backups`, statt in den Browser zu fließen. Das ist der
+Gegenpart zur Auswahl beim Wiederherstellen und lohnt sich vor allem bei großen
+Installationen:
+
+- Die Datei lässt sich anschließend in Ruhe **per FTP holen** – der FTP-Client kann eine
+  abgebrochene Übertragung fortsetzen, ein Browser-Download nicht immer.
+- Sie steht sofort in der Auswahlliste der **Wiederherstellung** (kein Upload nötig).
+- Für einen Umzug genügt damit ein FTP-Transfer von Server zu Server.
+
+> **Kein Ersatz für eine Sicherung außer Haus.** Bei einem Ausfall oder Verlust des
+> Servers ist eine dort liegende Datei genauso verloren wie die Website. Die Kopie auf
+> dem Server ist eine Zwischenstation, kein Backup-Konzept.
+
+Technisch gilt dasselbe wie beim Download: Das Archiv entsteht im selben Streaming-Verfahren
+(konstanter Speicherbedarf, kein Temp-ZIP) – nur geht es in eine Datei. Geschrieben wird
+zuerst nach `<name>.zip.partial` und erst nach dem letzten Byte umbenannt, sodass ein
+halbfertiges Archiv nie als Wiederherstellungs-Quelle auftauchen kann; scheitert das
+Schreiben (volle Platte, fehlende Rechte), bleibt nichts zurück. Der freie Plattenplatz
+wird vorab geprüft.
+
+Weil das Bauen eines mehrere GB großen Archivs Minuten dauert und eine stumme Anfrage so
+lange in den Read-Timeout des Webservers läuft, meldet der Server den Fortschritt
+**zeilenweise zurück** – das hält die Verbindung in Bewegung und speist zugleich den
+Fortschrittsbalken im Modul. Ohne JavaScript bleibt das Formular ein gewöhnlicher POST,
+der am Ende zur Bestätigungsmeldung weiterleitet.
+
+Über den Karten steht außerdem, wie viele Archive derzeit auf dem Server liegen und wie
+viel Platz sie belegen – gelöscht werden sie unten im Abschnitt „Wiederherstellung".
+
+## Automatische Voll-Backups
+
+Neben Contaos automatischen **Datenbank**-Backups kann das Bundle regelmäßig ein
+**komplettes** Archiv (Datenbank + Dateien) in `var/backups` ablegen, angestoßen vom
+Contao-Cron. Einstellbar sind Takt (täglich/wöchentlich/monatlich), Anzahl der
+aufbewahrten Archive und ob nur bei Änderungen gesichert wird; ein Knopf
+**„Jetzt einmal ausführen"** prüft die Einrichtung ohne Warten auf den Cron.
+
+> **Warum eigene Einstellungen und nicht der Rhythmus der Datenbank-Backups?** Weil
+> die beiden nichts miteinander zu tun haben: Ein Dump ist ein Bruchteil eines
+> Megabytes, ein Voll-Archiv schnell mehrere hundert MB bis GB. Täglich mit fünf
+> Aufbewahrungen – die Datenbank-Voreinstellung – füllt auf geteiltem Hosting die
+> Platte mit Kopien von Dateien, die sich nie geändert haben. **Und eine volle Platte
+> legt die Website lahm.** Die Voreinstellung hier ist deshalb: wöchentlich, zwei
+> Archive, nur bei Änderungen.
+
+**Nur bei Änderungen (empfohlen).** Vor jedem Lauf wird geprüft, ob sich seit dem
+letzten Archiv überhaupt etwas geändert hat. Dafür werden nur Datei-*Angaben* gelesen
+(keine Inhalte), was auch bei zehntausenden Dateien schnell bleibt, und zwar mehrere
+zugleich:
+
+- **Anzahl und Gesamtgröße** – erkennt hinzugefügte und gelöschte Dateien, selbst wenn
+  deren Zeitstempel nichts verrät.
+- **Summe aller Änderungszeiten (mtime)** – erkennt bearbeitete Inhalte.
+- **Summe aller Inode-Zeiten (ctime)** – erkennt Dateien, deren mtime in der
+  Vergangenheit liegt. Genau das passiert bei einem **FTP-Upload, der den
+  ursprünglichen Zeitstempel beibehält**: Das Foto sieht Jahre alt aus, sein Inode
+  wurde aber gerade geschrieben. Eine reine mtime-Prüfung würde solche Uploads
+  übersehen.
+- **Zusätzlich** gilt alles als geändert, was einen Zeitstempel aus der Sekunde des
+  letzten Laufs oder später trägt – im Zweifel also lieber ein Archiv zu viel.
+
+Dass Contao noch keine **Dateisynchronisierung** gemacht hat, spielt dabei keine Rolle:
+Gepackt wird direkt vom Dateisystem, nicht über `tl_files`. Per FTP hochgeladene Dateien
+sind also in jedem Fall Teil des Backups, synchronisiert oder nicht.
+
+**Aufräumen betrifft ausschließlich die eigenen Archive.** Sie tragen den Namensteil
+`auto-backup`; von Hand gespeicherte oder per FTP hochgeladene Archive werden nie
+gelöscht.
+
+**Ein echter System-Cron ist nötig.** Der Web-Cron führt Jobs im Seitenaufruf aus, wo
+ein minutenlanger Packvorgang am PHP-Zeitlimit scheitert – solche Läufe werden deshalb
+übersprungen und im Modul als „dafür ist ein echter System-Cron nötig" angezeigt. Der
+Eintrag dafür lautet:
+
+```cron
+* * * * * /usr/bin/php /pfad/zur/installation/vendor/bin/contao-console contao:cron
+```
+
+Wer keinen System-Cron einrichten kann, aktiviert ersatzweise „Auch beim Web-Cron
+versuchen" – mit dem Risiko abgebrochener Läufe (ein abgebrochener Lauf hinterlässt
+nichts, siehe das `.partial`-Verfahren oben).
+
+Reicht der freie Plattenplatz nicht, wird der Lauf übersprungen und der Grund im
+System-Log vermerkt, statt die Platte vollzuschreiben. Und auch hier gilt: **kein
+Ersatz für eine Sicherung außer Haus.**
+
 ## Wiederherstellung (Restore)
 
 > ⚠️ **NUTZUNG AUF EIGENE GEFAHR!** Die Wiederherstellung **ersetzt den aktuellen
@@ -54,12 +147,39 @@ jeweils mit Optionen und einer Bestätigung durch Eintippen von **WIEDERHERSTELL
 
 - **Datenbank-Sicherung vom Server wiederherstellen** – listet die Contao-Backups
   aus `var/backups` (dort legt auch der „Nur Datenbank"-Download eine Kopie ab).
-- **Backup-Archiv (ZIP) hochladen und wiederherstellen** – ein mit diesem Bundle
-  erstelltes Voll- oder Dateien-ZIP. Der Upload läuft in **kleinen Teilstücken**
-  (Chunks unterhalb von `upload_max_filesize`/`post_max_size`), dadurch funktionieren
-  auch mehrere GB große Archive trotz PHP-Upload-Limits. Nach dem Upload zeigt die
-  Seite, was das Archiv enthält (Datenbank-Dump, Dateien-Pfade), und was eingespielt
-  werden soll, ist per Checkbox wählbar.
+- **Backup-Archiv (ZIP) hochladen oder vom Server auswählen** – ein mit diesem Bundle
+  erstelltes Voll- oder Dateien-ZIP. Es gibt dafür zwei Wege, die zum selben Ergebnis
+  führen; danach zeigt die Seite, was das Archiv enthält (Datenbank-Dump,
+  Dateien-Pfade), und was eingespielt werden soll, ist per Checkbox wählbar:
+  - **Hochladen** über den Browser. Der Upload läuft in **kleinen Teilstücken**
+    (Chunks unterhalb von `upload_max_filesize`/`post_max_size`), dadurch funktionieren
+    auch mehrere GB große Archive trotz PHP-Upload-Limits.
+  - **Auswählen**, wenn das Archiv bereits auf dem Server liegt (siehe unten).
+
+### Archiv vom Server auswählen (ohne Upload)
+
+Ein Archiv, das per **FTP/SSH** oder über die Dateiverwaltung des Hostings nach
+`var/backups` (oder `var/backup_restore`) übertragen wurde, erscheint im Modul als
+Auswahlliste und lässt sich dort direkt übernehmen – ganz ohne Browser-Upload. Für
+sehr große Archive und auf wackeligen Leitungen ist das der zuverlässigste Weg: Der
+FTP-Client kann eine abgebrochene Übertragung fortsetzen, und weder Browser noch
+PHP-Upload-Limits sind beteiligt.
+
+Beide Verzeichnisse liegen **außerhalb des Web-Roots** – ein dort abgelegtes Backup
+ist also nie über HTTP abrufbar. Aus genau diesem Grund wird `files/` bewusst **nicht**
+durchsucht: dessen Ordner können veröffentlicht sein.
+
+Die ausgewählte Datei wird dabei **weder kopiert noch verschoben**, sondern an Ort und
+Stelle gelesen. Das hat zwei Konsequenzen:
+
+- Ein mehrere GB großes Archiv braucht den Platz **nicht doppelt**.
+- Die Datei **bleibt liegen** – auch nach einer erfolgreichen Wiederherstellung und
+  auch, wenn die Auswahl wieder aufgehoben wird. Ein zweiter Versuch ist damit ohne
+  erneute Übertragung möglich. Wird sie nicht mehr gebraucht, entfernt sie der Knopf
+  **„Ausgewähltes Archiv vom Server löschen"** (oder eben der FTP-Client).
+
+Alles Weitere – Analyse, Kompatibilitätsprüfung, Optionen, Ablauf und Sicherheitsnetz –
+ist identisch mit dem hochgeladenen Archiv.
 
 ### Ablauf und Sicherheitsnetz
 
@@ -109,11 +229,15 @@ Wiederherstellung damit die Kompatibilität, bevor irgendetwas verändert wird:
 Archive ohne Manifest (mit einer älteren Bundle-Version erstellt) funktionieren
 weiterhin – nur ohne diese Prüfung.
 
-`composer.json`/`composer.lock` werden standardmäßig **nicht** eingespielt (eigene
-Checkbox): `vendor/` ist nie Teil des Backups, nach dem Einspielen wäre also
-`composer install` bzw. der Contao Manager nötig. Gleiches gilt generell: Haben sich
-die installierten Erweiterungen seit dem Backup geändert, anschließend
-`composer install`/`contao:migrate` ausführen.
+Alle Optionen sind **standardmäßig aktiviert** – auch `composer.json`/`composer.lock`
+(eigene Checkbox). Zu beachten ist dabei: `vendor/` ist nie Teil des Backups. Weicht das
+eingespielte `composer.lock` vom installierten Stand ab, ist danach ein
+`composer install` bzw. der Contao Manager nötig – die Ergebnisseite zeigt genau das an
+(inklusive Link zum Manager) und meldet ausdrücklich, wenn die Pakete bereits passen.
+Beim Wiederherstellen in dieselbe Installation ist das der Regelfall. Zum Auslassen
+genügt es, die Checkbox abzuwählen. Gleiches gilt generell: Haben sich die installierten
+Erweiterungen seit dem Backup geändert, anschließend `composer install`/`contao:migrate`
+ausführen.
 
 ### Backup in eine andere/frische Installation einspielen
 
@@ -200,6 +324,12 @@ Dateien unter einer halben Sekunde) und als `Content-Length` gesendet wird. **Fi
 fallen automatisch auf den normalen Browser-Download zurück (Fortschritt dann im
 Download-Manager des Browsers). Einzige Konsequenz: Ändert eine Datei *während* des (evtl.
 langen) Downloads ihre Größe, kann das ZIP unvollständig sein – dann einfach erneut laden.
+
+**Wiederherstellung sehr großer Archive:** Für den umgekehrten Weg – ein GB-großes ZIP
+zurück auf den Server – ist der Browser-Upload nicht die einzige Möglichkeit: Das Archiv
+lässt sich per FTP/SSH nach `var/backups` legen und im Modul einfach auswählen (siehe
+„Archiv vom Server auswählen"). Damit entfallen Upload-Limits und Browser-Timeouts
+vollständig.
 
 **Abgestufte Fallbacks (Progressive Enhancement):** Die Buttons sind echte
 `<form method="post">` – **ohne JavaScript** lädt ein Klick das Backup ganz normal herunter

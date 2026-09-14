@@ -4,9 +4,10 @@ $GLOBALS['TL_LANG']['tl_backup']['headline']         = 'Backup';
 $GLOBALS['TL_LANG']['tl_backup']['intro']            = 'Download a backup here. Below each button you can see exactly what it contains. Missing paths are skipped.';
 $GLOBALS['TL_LANG']['tl_backup']['securityNote']     = '<strong>Important:</strong> The backup contains all sensitive data, including the user passwords (stored encrypted, but not uncrackable). Keep the downloaded file secure and confidential.';
 $GLOBALS['TL_LANG']['tl_backup']['gzipHint']         = '<strong>Note:</strong> This server compresses the downloads (gzip), so the progress is only shown as size (MB) instead of a percentage bar – the downloads work normally. To get the percentage bar, add this to <code>public/.htaccess</code>:<br><code>&lt;IfModule mod_setenvif.c&gt;<br>&nbsp;&nbsp;SetEnvIf Query_String &quot;do=backup&quot; no-gzip dont-vary<br>&lt;/IfModule&gt;</code>';
-$GLOBALS['TL_LANG']['tl_backup']['downloadFull']     = 'Download database and files';
-$GLOBALS['TL_LANG']['tl_backup']['downloadDatabase'] = 'Download database only';
-$GLOBALS['TL_LANG']['tl_backup']['downloadFiles']    = 'Download files only';
+$GLOBALS['TL_LANG']['tl_backup']['downloadFull']     = 'Database and files';
+$GLOBALS['TL_LANG']['tl_backup']['downloadDatabase'] = 'Database only';
+$GLOBALS['TL_LANG']['tl_backup']['downloadFiles']    = 'Files only';
+$GLOBALS['TL_LANG']['tl_backup']['downloadButton']    = 'Download';
 $GLOBALS['TL_LANG']['tl_backup']['databaseGroup']    = 'Database';
 $GLOBALS['TL_LANG']['tl_backup']['filesGroup']       = 'Files and folders';
 $GLOBALS['TL_LANG']['tl_backup']['databaseItem']     = 'all tables as SQL backup';
@@ -18,8 +19,31 @@ $GLOBALS['TL_LANG']['tl_backup']['started']          = '✓ Download started';
 $GLOBALS['TL_LANG']['tl_backup']['done']             = '✓ Done';
 $GLOBALS['TL_LANG']['tl_backup']['error']            = 'Error – please try again';
 
+// Storing a backup on the server (instead of downloading it)
+$GLOBALS['TL_LANG']['tl_backup']['storeButton']      = 'Store on the server';
+$GLOBALS['TL_LANG']['tl_backup']['storeBusy']        = 'Storing …';
+$GLOBALS['TL_LANG']['tl_backup']['storeHint']        = '<strong>Instead of downloading</strong>, a backup can also be written straight to the server (%s) – useful for very large installations: the file can then be fetched per FTP at leisure and selected below under "Restore" without an upload. <strong>This does not replace an off-site backup:</strong> if the server fails or is lost, a file sitting there is gone just like the website itself.';
+$GLOBALS['TL_LANG']['tl_backup']['storeSummaryOne']  = 'There is currently %d archive (%s) on the server. It can be selected and deleted below under "Restore".';
+$GLOBALS['TL_LANG']['tl_backup']['storeSummaryMany'] = 'There are currently %d archives (%s in total) on the server. They can be selected and deleted below under "Restore".';
+$GLOBALS['TL_LANG']['tl_backup']['storeDone']        = 'Stored on the server: <strong>%s</strong> – located at %s';
+$GLOBALS['TL_LANG']['tl_backup']['storeDoneShort']   = '✓ Stored at %s (%s) – reloading the page.';
+$GLOBALS['TL_LANG']['tl_backup']['storeFailed']      = 'Storing the backup on the server failed: %s';
+$GLOBALS['TL_LANG']['tl_backup']['storeFailedShort'] = '✗ Storing failed: %s';
+
+// Short texts and section subtitles (the long versions sit behind "More about this")
+$GLOBALS['TL_LANG']['tl_backup']['moreInfo']          = 'More about this';
+$GLOBALS['TL_LANG']['tl_backup']['sectionAutoSub']    = 'What gets backed up regularly in the background';
+$GLOBALS['TL_LANG']['tl_backup']['sectionManualSub']  = 'Download it or keep it on the server';
+$GLOBALS['TL_LANG']['tl_backup']['sectionRestoreSub'] = 'Put an earlier state back in place';
+$GLOBALS['TL_LANG']['tl_backup']['blockDatabase']     = 'Database (by Contao)';
+$GLOBALS['TL_LANG']['tl_backup']['autoLead']          = 'Contao creates database backups in <code>var/backups</code> on its own. How many of them are kept can be set here.';
+$GLOBALS['TL_LANG']['tl_backup']['autoFullLead']      = 'On top of that, a complete backup of database <em>and</em> files can be stored in %s on a schedule, triggered by the Contao cron.';
+$GLOBALS['TL_LANG']['tl_backup']['autoFullWarnShort'] = 'A full backup is many times the size of a database backup – too often, or too many kept, fills the disk. The defaults are frugal for that reason.';
+$GLOBALS['TL_LANG']['tl_backup']['restoreWarnShort']  = 'Restoring <strong>replaces the current state irreversibly</strong> and can leave a broken installation if it is interrupted. Only do it if the server can be reached without this back end in an emergency.';
+$GLOBALS['TL_LANG']['tl_backup']['restoreLead']       = 'An earlier state can be put back in place here – a database backup from the server or a complete backup archive.';
+
 // Sections
-$GLOBALS['TL_LANG']['tl_backup']['sectionAuto']      = 'Automatic database backups';
+$GLOBALS['TL_LANG']['tl_backup']['sectionAuto']      = 'Automatic backups';
 $GLOBALS['TL_LANG']['tl_backup']['sectionManual']    = 'Manual backup (files and database)';
 $GLOBALS['TL_LANG']['tl_backup']['sectionRestore']   = 'Restore';
 
@@ -38,6 +62,33 @@ $GLOBALS['TL_LANG']['tl_backup']['settingsInvalid']  = 'Settings not saved: %s';
 $GLOBALS['TL_LANG']['tl_backup']['autoListTitle']    = 'Currently stored database backups';
 $GLOBALS['TL_LANG']['tl_backup']['autoListEmpty']    = 'There are currently no database backups in var/backups.';
 
+// Automatic full backups (cron)
+$GLOBALS['TL_LANG']['tl_backup']['sectionAutoFull']   = 'Automatic full backups';
+$GLOBALS['TL_LANG']['tl_backup']['autoFullIntro']     = 'On top of the database backups, a <strong>complete backup</strong> (database and files) can be stored in %s on a schedule. It is triggered by the Contao cron and carries the name part <code>auto-backup</code> – only archives with that part are ever cleaned up, so archives stored by hand or uploaded per FTP stay untouched.';
+$GLOBALS['TL_LANG']['tl_backup']['autoFullWarning']   = '<strong>Worth considering:</strong> a full backup is many times the size of a database backup (easily hundreds of MB up to several GB). Too often, or too many kept, fills the disk – and a full disk takes the website down. The free space is therefore checked up front (if it is not enough the run is skipped and noted in the system log), and the defaults are frugal. <strong>This does not replace an off-site backup either.</strong>';
+$GLOBALS['TL_LANG']['tl_backup']['autoEnabled']       = 'Create automatic full backups';
+$GLOBALS['TL_LANG']['tl_backup']['autoInterval']      = 'How often';
+$GLOBALS['TL_LANG']['tl_backup']['autoInterval_daily']   = 'daily';
+$GLOBALS['TL_LANG']['tl_backup']['autoInterval_weekly']  = 'weekly';
+$GLOBALS['TL_LANG']['tl_backup']['autoInterval_monthly'] = 'monthly';
+$GLOBALS['TL_LANG']['tl_backup']['autoKeep']          = 'How many archives to keep (the oldest are deleted)';
+$GLOBALS['TL_LANG']['tl_backup']['autoOnlyOnChange']  = 'Only create one when something changed since the last archive (recommended – saves nearly all of the space on sites whose files rarely change)';
+$GLOBALS['TL_LANG']['tl_backup']['autoWebCron']       = 'Also attempt it on the web cron (without a real system cron). Not recommended: packing then runs inside a page request and may hit the PHP time limit.';
+$GLOBALS['TL_LANG']['tl_backup']['autoSaved']         = 'Settings for the automatic full backups saved.';
+$GLOBALS['TL_LANG']['tl_backup']['autoInvalid']       = 'Not saved: %s';
+$GLOBALS['TL_LANG']['tl_backup']['autoRunNow']        = 'Run once now';
+$GLOBALS['TL_LANG']['tl_backup']['autoRunNowHint']    = 'To verify the setup – the same rules apply as for the cron run.';
+$GLOBALS['TL_LANG']['tl_backup']['autoRunDone']       = 'Run completed – result: %s';
+$GLOBALS['TL_LANG']['tl_backup']['autoStateTitle']    = 'Last automatic run';
+$GLOBALS['TL_LANG']['tl_backup']['autoStateNever']    = 'No automatic run has happened yet.';
+$GLOBALS['TL_LANG']['tl_backup']['autoStatus_created']           = 'archive created:';
+$GLOBALS['TL_LANG']['tl_backup']['autoStatus_skipped_unchanged'] = 'skipped – nothing changed since the last archive';
+$GLOBALS['TL_LANG']['tl_backup']['autoStatus_needs_cli']         = 'skipped – this needs a real system cron (contao:cron)';
+$GLOBALS['TL_LANG']['tl_backup']['autoStatus_not_due']           = 'not due yet';
+$GLOBALS['TL_LANG']['tl_backup']['autoStatus_locked']            = 'skipped – a backup was already running';
+$GLOBALS['TL_LANG']['tl_backup']['autoStatus_disabled']          = 'switched off';
+$GLOBALS['TL_LANG']['tl_backup']['autoStatus_failed']            = 'failed:';
+
 // Restore
 $GLOBALS['TL_LANG']['tl_backup']['restoreHeadline']       = 'Restore';
 $GLOBALS['TL_LANG']['tl_backup']['restoreIntro']          = 'Restore a previously created backup here – either a database backup stored on the server (var/backups) or a downloaded backup archive (ZIP). This also lets you move a backup into another/fresh Contao installation, as long as this bundle is installed there.';
@@ -46,7 +97,7 @@ $GLOBALS['TL_LANG']['tl_backup']['restoreWarning']        = 'Restoring <strong>i
 $GLOBALS['TL_LANG']['tl_backup']['serverRestoreTitle']    = 'Restore a database backup from the server';
 $GLOBALS['TL_LANG']['tl_backup']['serverRestoreExplain']  = 'These database backups live in var/backups (the "Download database only" button also stores a copy there).';
 $GLOBALS['TL_LANG']['tl_backup']['serverRestoreEmpty']    = 'There are no database backups in var/backups.';
-$GLOBALS['TL_LANG']['tl_backup']['uploadTitle']           = 'Upload and restore a backup archive (ZIP)';
+$GLOBALS['TL_LANG']['tl_backup']['uploadTitle']           = 'Upload a backup archive (ZIP) or select one on the server';
 $GLOBALS['TL_LANG']['tl_backup']['uploadExplain']         = 'A full or files backup (ZIP) downloaded with this bundle. The upload is sent in small chunks, so even huge archives work despite PHP upload limits.';
 $GLOBALS['TL_LANG']['tl_backup']['uploadComposerHint']    = '<strong>Heads-up:</strong> If the archive contains <code>composer.json</code>/<code>composer.lock</code> and you restore them (e.g. when moving to another/fresh installation), a <strong>"composer install"</strong> is usually needed afterwards so the installed extensions exactly match the restored state. In the Contao Manager: <strong>System maintenance → Composer dependencies → "Run installer"</strong> (then reload the manager once). This is shown here again after the restore.';
 $GLOBALS['TL_LANG']['tl_backup']['uploadButton']          = 'Upload archive';
@@ -54,6 +105,19 @@ $GLOBALS['TL_LANG']['tl_backup']['uploadBusy']            = 'Uploading …';
 $GLOBALS['TL_LANG']['tl_backup']['uploadNotZip']          = 'Please upload a ZIP file.';
 $GLOBALS['TL_LANG']['tl_backup']['uploadFailed']          = 'The upload failed. Without JavaScript the server\'s PHP upload limits apply (%s).';
 $GLOBALS['TL_LANG']['tl_backup']['uploadError']           = 'Upload failed: %s';
+
+// Selecting an archive that is already on the server (instead of uploading one)
+$GLOBALS['TL_LANG']['tl_backup']['orLabel']               = 'or';
+$GLOBALS['TL_LANG']['tl_backup']['serverFileTitle']       = 'Select an archive on the server (no upload)';
+$GLOBALS['TL_LANG']['tl_backup']['serverFileExplain']     = 'An archive that is already on the server – transferred to %s per FTP/SSH or with the hosting file manager – can be selected here directly. For very large archives this is the most reliable route, as no browser upload is involved. The file is neither copied nor moved but read where it lies, so it remains available after the restore as well.';
+$GLOBALS['TL_LANG']['tl_backup']['serverFileEmpty']       = 'There are currently no ZIP archives there. To use this route, transfer the file to %s per FTP and reload this page.';
+$GLOBALS['TL_LANG']['tl_backup']['serverFileButton']      = 'Use the selected archive';
+$GLOBALS['TL_LANG']['tl_backup']['serverFileDelete']      = 'Delete the selected archive from the server';
+$GLOBALS['TL_LANG']['tl_backup']['serverFileDeleteConfirm'] = 'The selected archive will be permanently deleted from the server. Continue?';
+$GLOBALS['TL_LANG']['tl_backup']['serverFileFailed']      = 'The archive on the server could not be used: %s The file may have been removed meanwhile – please reload this page.';
+$GLOBALS['TL_LANG']['tl_backup']['archiveReadyServer']    = 'Archive on the server: <strong>%s</strong> (%s) – located at %s, where it stays.';
+$GLOBALS['TL_LANG']['tl_backup']['archiveErrorServer']    = 'This concerns the file %s. It is left untouched on the server and can be replaced per FTP.';
+$GLOBALS['TL_LANG']['tl_backup']['discardSelectionButton'] = 'Clear the selection (the file stays on the server)';
 $GLOBALS['TL_LANG']['tl_backup']['archiveReady']          = 'Uploaded archive: <strong>%s</strong> (%s)';
 $GLOBALS['TL_LANG']['tl_backup']['archiveInvalid']        = 'The uploaded archive cannot be used: %s';
 $GLOBALS['TL_LANG']['tl_backup']['archiveDatabase']       = 'Database dump: %s (created: %s)';

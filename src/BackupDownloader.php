@@ -52,6 +52,24 @@ final class BackupDownloader
     public const MANIFEST_NAME = 'backup-manifest.json';
 
     /**
+     * Where an archive is stored when it is kept on the server instead of downloaded.
+     * Same directory Contao writes its database backups to: outside the web root (never
+     * reachable over HTTP) and one of the places the restore offers for selection.
+     */
+    public const STORE_DIR = 'var/backups';
+
+    /**
+     * Free disk space required on top of the archive itself, so writing it cannot fill
+     * the disk to the last byte.
+     */
+    private const DISK_SPACE_MARGIN = 64 * 1024 * 1024;
+
+    /**
+     * Shortest interval between two progress reports while storing (seconds).
+     */
+    private const PROGRESS_INTERVAL = 0.4;
+
+    /**
      * Memory ZipStream's simulate pass needs per file, measured on a 34k-file site
      * (142 MiB total): 4 KiB plus a margin. Used to decide whether simulating is safe at all.
      */
@@ -173,6 +191,223 @@ final class BackupDownloader
         });
 
         return $this->prepareZipResponse($response, $this->filename('full-backup', '.zip'), $size);
+    }
+
+    /**
+     * Writes a backup into var/backups instead of sending it to the browser - the counterpart
+     * to the download for everyone who would upload the archive back to the server anyway
+     * (it can be fetched per FTP later, and the restore offers it for selection right away).
+     *
+     * The archive is built with the same streaming pass as a download, but into a file: no
+     * temporary copy, constant memory. It is written to "<name>.partial" and only renamed
+     * into place once it is complete, so a half-written archive can never be picked up as a
+     * restore source, and a failure (disk full, unreadable file) leaves nothing behind.
+     *
+     * @param bool                             $withDatabase pack the database dump as well
+     * @param callable(int, int|null):void|null $onProgress   receives (bytes written, total or null),
+     *                                                        throttled to PROGRESS_INTERVAL
+     * @param string|null                       $prefix       file name prefix, so automatic backups
+     *                                                        stay distinguishable from manual ones
+     *
+     * @return array{name: string, path: string, size: int}
+     *
+     * @throws \RuntimeException if the directory is unusable or the disk is too full
+     */
+    public function storeArchive(bool $withDatabase, callable|null $onProgress = null, string|null $prefix = null): array
+    {
+        $this->liftTimeLimit();
+
+        $directory = $this->storeDirectory();
+
+        // Create the database backup BEFORE the archive is opened: should it fail, nothing
+        // has been written yet.
+        $backup = $withDatabase ? $this->createDatabaseBackup() : null;
+        $manifest = $this->buildManifest();
+        $size = $this->computeZipSize($backup, $manifest);
+
+        if (null !== $size) {
+            $this->assertEnoughDiskSpace($directory, $size);
+        }
+
+        $name = $this->filename($prefix ?? ($withDatabase ? 'full-backup' : 'files-backup'), '.zip');
+        $target = $directory.'/'.$name;
+        $partial = $target.'.partial';
+        $handle = fopen($partial, 'wb');
+
+        if (!\is_resource($handle)) {
+            throw new \RuntimeException(\sprintf('Could not open "%s" for writing.', self::STORE_DIR.'/'.$name.'.partial'));
+        }
+
+        $lastReport = 0.0;
+        $report = static function (int $written) use ($onProgress, $size, &$lastReport): void {
+            if (null === $onProgress) {
+                return;
+            }
+
+            $now = microtime(true);
+
+            if ($now - $lastReport < self::PROGRESS_INTERVAL) {
+                return;
+            }
+
+            $lastReport = $now;
+            $onProgress($written, $size);
+        };
+
+        try {
+            // No output flushing here: the bytes go into the file, while the caller keeps the
+            // (possibly very long) request alive with its own progress output.
+            $zip = new ZipStream(
+                outputStream: $handle,
+                sendHttpHeaders: false,
+                defaultCompressionMethod: CompressionMethod::STORE,
+            );
+
+            $zip->addFile(self::MANIFEST_NAME, $manifest);
+
+            if (null !== $backup) {
+                $stream = $this->backupManager->readStream($backup);
+
+                if (\is_resource($stream)) {
+                    $dbSize = $backup->getSize();
+
+                    if ($dbSize > 0) {
+                        $zip->addFileFromStream('database/'.$backup->getFilename(), $stream, exactSize: $dbSize);
+                    } else {
+                        $zip->addFileFromStream('database/'.$backup->getFilename(), $stream);
+                    }
+
+                    fclose($stream);
+                }
+
+                $report((int) ftell($handle));
+            }
+
+            $this->addProjectFiles($zip, static function () use ($handle, $report): void {
+                $report((int) ftell($handle));
+            });
+
+            $zip->finish();
+            fclose($handle);
+
+            if (!@rename($partial, $target)) {
+                throw new \RuntimeException(\sprintf('Could not move the finished archive to "%s".', self::STORE_DIR.'/'.$name));
+            }
+        } catch (\Throwable $e) {
+            if (\is_resource($handle)) {
+                fclose($handle);
+            }
+
+            @unlink($partial);
+
+            $this->logger->error(
+                'Backup: storing the archive on the server failed - '.$e->getMessage(),
+                ['contao' => new ContaoContext(__METHOD__, ContaoContext::ERROR), 'exception' => $e],
+            );
+
+            throw $e;
+        }
+
+        $written = (int) filesize($target);
+
+        $this->logger->info(
+            \sprintf('Backup stored on the server: %s (%d bytes)', self::STORE_DIR.'/'.$name, $written),
+            ['contao' => new ContaoContext(__METHOD__, ContaoContext::GENERAL)],
+        );
+
+        return ['name' => $name, 'path' => self::STORE_DIR.'/'.$name, 'size' => $written];
+    }
+
+    /**
+     * Creates a database backup in var/backups (Contao's own backup, subject to the
+     * retention settings) without sending anything to the browser.
+     *
+     * @return array{name: string, path: string, size: int}
+     */
+    public function storeDatabaseBackup(): array
+    {
+        $this->liftTimeLimit();
+        $this->storeDirectory();
+
+        $backup = $this->createDatabaseBackup();
+
+        $this->logger->info(
+            \sprintf('Database backup stored on the server: %s', self::STORE_DIR.'/'.$backup->getFilename()),
+            ['contao' => new ContaoContext(__METHOD__, ContaoContext::GENERAL)],
+        );
+
+        return [
+            'name' => $backup->getFilename(),
+            'path' => self::STORE_DIR.'/'.$backup->getFilename(),
+            'size' => $backup->getSize(),
+        ];
+    }
+
+    /**
+     * The archives already stored on the server, newest first - so the module can show what
+     * is there (and how much space it uses) without duplicating the directory logic.
+     *
+     * @return list<array{name: string, path: string, size: int, modified: int}>
+     */
+    public function storedArchives(): array
+    {
+        $directory = $this->projectDir.'/'.self::STORE_DIR;
+        $archives = [];
+
+        foreach (glob($directory.'/*.[zZ][iI][pP]') ?: [] as $file) {
+            if (!is_file($file)) {
+                continue;
+            }
+
+            $archives[] = [
+                'name' => basename($file),
+                'path' => self::STORE_DIR.'/'.basename($file),
+                'size' => (int) filesize($file),
+                'modified' => (int) filemtime($file),
+            ];
+        }
+
+        usort($archives, static fn (array $a, array $b): int => $b['modified'] <=> $a['modified']);
+
+        return $archives;
+    }
+
+    /**
+     * @throws \RuntimeException if the directory cannot be created or written to
+     */
+    private function storeDirectory(): string
+    {
+        $directory = $this->projectDir.'/'.self::STORE_DIR;
+
+        if (!is_dir($directory) && !@mkdir($directory, 0777, true) && !is_dir($directory)) {
+            throw new \RuntimeException(\sprintf('The directory "%s" does not exist and could not be created.', self::STORE_DIR));
+        }
+
+        if (!is_writable($directory)) {
+            throw new \RuntimeException(\sprintf('The directory "%s" is not writable for the web server user.', self::STORE_DIR));
+        }
+
+        return $directory;
+    }
+
+    /**
+     * @throws \RuntimeException if the archive would not fit
+     */
+    private function assertEnoughDiskSpace(string $directory, int $requiredBytes): void
+    {
+        $free = @disk_free_space($directory);
+
+        if (false === $free) {
+            return; // unknown - proceed
+        }
+
+        if ($free < $requiredBytes + self::DISK_SPACE_MARGIN) {
+            throw new \RuntimeException(\sprintf(
+                'Not enough free disk space: the archive needs about %d MB but only %d MB are free.',
+                (int) round($requiredBytes / 1048576),
+                (int) round($free / 1048576),
+            ));
+        }
     }
 
     private function createDatabaseBackup(): Backup
@@ -374,10 +609,18 @@ final class BackupDownloader
         };
     }
 
-    private function addProjectFiles(ZipStream $zip): void
+    /**
+     * @param callable():void|null $afterEachFile called after every packed file, e.g. to
+     *                                            report progress on a long-running store
+     */
+    private function addProjectFiles(ZipStream $zip, callable|null $afterEachFile = null): void
     {
         foreach ($this->projectFiles() as $localPath => $absolutePath) {
             $zip->addFileFromPath($localPath, $absolutePath);
+
+            if (null !== $afterEachFile) {
+                $afterEachFile();
+            }
         }
     }
 

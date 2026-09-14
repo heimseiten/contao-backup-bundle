@@ -26,6 +26,18 @@ services:
             $inner: '@.inner'
             $projectDir: '%kernel.project_dir%'
 
+    Heimseiten\ContaoBackupBundle\AutomaticBackup:
+        public: true
+        arguments:
+            $downloader: '@Heimseiten\ContaoBackupBundle\BackupDownloader'
+            $projectDir: '%kernel.project_dir%'
+            $logger: '@monolog.logger.contao'
+
+    # The cron job itself needs no public flag - Contao resolves it through the attribute.
+    Heimseiten\ContaoBackupBundle\AutomaticBackupCron:
+        arguments:
+            $automaticBackup: '@Heimseiten\ContaoBackupBundle\AutomaticBackup'
+
     Heimseiten\ContaoBackupBundle\BackupRestorer:
         public: true
         arguments:

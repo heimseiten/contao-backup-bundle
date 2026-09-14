@@ -9,7 +9,9 @@ use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 
 /**
- * Manages the uploaded backup archive below var/backup_restore (outside the web root):
+ * Manages the backup archive to be restored: either an upload below var/backup_restore
+ * (outside the web root) or an archive that was placed on the server by other means (FTP,
+ * SSH, the hosting file manager) and merely selected in the back end. Handles the
  * chunked/direct uploads, validation and analysis of the ZIP, and the staging directory
  * the archive is extracted to before the atomic path swap.
  */
@@ -19,6 +21,14 @@ final class RestoreArchiveStore
      * The archive entry name of the database dump: "database/<contao backup name>".
      */
     private const DATABASE_ENTRY_REGEX = '@^database/[^/]*__(\d{14})\.sql(\.gz)?$@';
+
+    /**
+     * Project-relative directories that are scanned for archives placed on the server
+     * without the back-end upload. Both are outside the web root, so an archive sitting
+     * there can never be fetched over HTTP - which is why files/ is deliberately NOT
+     * among them (its folders can be published).
+     */
+    private const SERVER_ARCHIVE_DIRS = ['var/backups', 'var/backup_restore'];
 
     /**
      * The manifest is read fully into memory, so its size is capped (1 MiB is far more
@@ -35,7 +45,21 @@ final class RestoreArchiveStore
         return $this->projectDir.'/var/backup_restore';
     }
 
+    /**
+     * The archive currently staged for a restore: the selected server file if one is
+     * chosen, otherwise the uploaded one.
+     */
     public function archivePath(): string
+    {
+        return $this->selectedServerArchive() ?? $this->uploadPath();
+    }
+
+    /**
+     * Where an upload is stored. Always inside var/backup_restore, never the path of a
+     * selected server file (which the bundle only ever reads, never writes or deletes
+     * behind the user's back).
+     */
+    public function uploadPath(): string
     {
         return $this->directory().'/upload.zip';
     }
@@ -60,12 +84,14 @@ final class RestoreArchiveStore
     }
 
     /**
-     * The original file name of the upload (display only, stored next to the archive).
+     * The file name shown for the staged archive: the real name of a selected server
+     * file, otherwise the original name of the upload (stored next to the archive).
      */
     public function archiveDisplayName(): string
     {
-        $nameFile = $this->archivePath().'.name';
-        $name = is_file($nameFile) ? trim((string) file_get_contents($nameFile)) : '';
+        $selected = $this->selectedServerArchive();
+        $nameFile = $this->uploadPath().'.name';
+        $name = null !== $selected ? basename($selected) : (is_file($nameFile) ? trim((string) file_get_contents($nameFile)) : '');
 
         // Sanitize for display: the name is user input.
         $name = preg_replace('/[^\w.\- ()\[\]]/u', '_', $name) ?? '';
@@ -146,8 +172,8 @@ final class RestoreArchiveStore
         }
 
         $this->discardArchive();
-        $this->rename($part, $this->archivePath());
-        file_put_contents($this->archivePath().'.name', $originalName);
+        $this->rename($part, $this->uploadPath());
+        file_put_contents($this->uploadPath().'.name', $originalName);
     }
 
     /**
@@ -159,12 +185,14 @@ final class RestoreArchiveStore
         $this->discardArchive();
 
         $originalName = $file->getClientOriginalName();
-        $file->move($this->directory(), 'upload.zip');
-        file_put_contents($this->archivePath().'.name', $originalName);
+        $file->move($this->directory(), basename($this->uploadPath()));
+        file_put_contents($this->uploadPath().'.name', $originalName);
     }
 
     /**
-     * Removes the uploaded archive and all working data (staging, dump copy, partial uploads).
+     * Clears the staged archive and all working data (staging, dump copy, partial uploads).
+     * An uploaded archive is deleted; a SELECTED server file is only deselected - it was
+     * put there by the user and stays available for another attempt.
      */
     public function discard(): void
     {
@@ -189,6 +217,218 @@ final class RestoreArchiveStore
                 (new Filesystem())->remove($part);
             }
         }
+
+        // A selection whose file has meanwhile been removed (e.g. per FTP) is stale.
+        if (is_file($this->selectionPath()) && null === $this->selectedServerArchive()) {
+            (new Filesystem())->remove($this->selectionPath());
+        }
+    }
+
+    /**
+     * The directories an archive may be placed in, as project-relative paths - shown in
+     * the back end so it is clear where to put the file. var/backup_restore is created on
+     * demand, var/backups always exists (Contao's own backup directory).
+     *
+     * @return list<string>
+     */
+    public function serverArchiveDirectories(): array
+    {
+        return self::SERVER_ARCHIVE_DIRS;
+    }
+
+    /**
+     * The ZIP archives lying in the scanned directories, newest first - the choices for a
+     * restore without an upload. The bundle's own working files (the upload and the
+     * partial chunks) are never offered.
+     *
+     * Each entry carries a short "key" derived from its path: that key - not the path
+     * itself - is what the back-end form posts, so no file name ever has to survive
+     * Contao's input filtering, and the server resolves it against this very list.
+     *
+     * @return list<array{key: string, path: string, name: string, size: int, modified: int}>
+     */
+    public function listServerArchives(): array
+    {
+        $archives = [];
+
+        foreach (self::SERVER_ARCHIVE_DIRS as $relativeDir) {
+            $realDir = realpath($this->projectDir.'/'.$relativeDir);
+
+            if (false === $realDir || !is_dir($realDir)) {
+                continue;
+            }
+
+            foreach (glob($realDir.'/*.[zZ][iI][pP]') ?: [] as $file) {
+                // Resolve the file too: a symlink pointing out of the directory (or at a
+                // device/socket) must never become a restore source.
+                $realFile = realpath($file);
+
+                if (false === $realFile || !is_file($realFile) || \dirname($realFile) !== $realDir) {
+                    continue;
+                }
+
+                // Skip our own working copy of an upload in progress.
+                if ($realFile === realpath($this->uploadPath())) {
+                    continue;
+                }
+
+                $archives[] = [
+                    'key' => substr(sha1($relativeDir.'/'.basename($realFile)), 0, 16),
+                    'path' => $relativeDir.'/'.basename($realFile),
+                    'name' => basename($realFile),
+                    'size' => (int) filesize($realFile),
+                    'modified' => (int) filemtime($realFile),
+                ];
+            }
+        }
+
+        usort($archives, static fn (array $a, array $b): int => $b['modified'] <=> $a['modified']);
+
+        return $archives;
+    }
+
+    /**
+     * Stages an archive that already lies on the server. The file is NOT copied or moved -
+     * a multi-GB archive would otherwise need the space twice, and discarding it would
+     * destroy what the user uploaded per FTP - it is only remembered and read in place.
+     *
+     * @param string $key the "key" of one of the entries of listServerArchives()
+     *
+     * @throws RestoreException if the key does not belong to an offered archive
+     */
+    public function selectServerArchive(string $key): void
+    {
+        // Resolving the key against the freshly built list IS the validation: nothing is
+        // derived from the posted string, so no traversal or symlink trick can widen the
+        // choice beyond the files actually lying in the scanned directories.
+        $archive = $this->findServerArchive($key);
+
+        if (null === $archive) {
+            throw new RestoreException('The selected file is not one of the backup archives on the server.');
+        }
+
+        $this->ensureDirectory();
+        $this->discardArchive();
+
+        if (false === @file_put_contents($this->selectionPath(), $archive['path'])) {
+            throw new RestoreException(\sprintf('Could not write the selection to "%s" - is var/backup_restore writable?', $this->selectionPath()));
+        }
+    }
+
+    /**
+     * Deletes one of the offered archives from the server (explicit user action, so a
+     * large archive need not be removed per FTP afterwards).
+     *
+     * @param string $key the "key" of one of the entries of listServerArchives()
+     *
+     * @throws RestoreException if the key does not belong to an offered archive
+     */
+    public function deleteServerArchive(string $key): string
+    {
+        $archive = $this->findServerArchive($key);
+
+        if (null === $archive) {
+            throw new RestoreException('The file to delete is not one of the backup archives on the server.');
+        }
+
+        if ($archive['path'] === $this->selectedRelativePath()) {
+            (new Filesystem())->remove($this->selectionPath());
+        }
+
+        try {
+            (new Filesystem())->remove($this->projectDir.'/'.$archive['path']);
+        } catch (\Throwable $t) {
+            throw new RestoreException(\sprintf('Could not delete "%s": %s', $archive['path'], $t->getMessage()), 0, $t);
+        }
+
+        return $archive['name'];
+    }
+
+    /**
+     * @return array{key: string, path: string, name: string, size: int, modified: int}|null
+     */
+    private function findServerArchive(string $key): array|null
+    {
+        foreach ($this->listServerArchives() as $archive) {
+            if ($archive['key'] === $key) {
+                return $archive;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * True if the staged archive is a selected server file rather than an upload.
+     */
+    public function isServerArchiveSelected(): bool
+    {
+        return null !== $this->selectedServerArchive();
+    }
+
+    /**
+     * The project-relative path of the selected server file (for display), or null.
+     */
+    public function selectedArchiveRelativePath(): string|null
+    {
+        return null !== $this->selectedServerArchive() ? $this->selectedRelativePath() : null;
+    }
+
+    /**
+     * The absolute path of the selected server file, or null if nothing is selected (or
+     * the selection has become invalid because the file was removed meanwhile).
+     */
+    private function selectedServerArchive(): string|null
+    {
+        $relativePath = $this->selectedRelativePath();
+
+        if (null === $relativePath) {
+            return null;
+        }
+
+        $realFile = realpath($this->projectDir.'/'.$relativePath);
+
+        // Re-validate on every access: the pointer file is plain text on disk, so its
+        // target is checked against the allowed directories again, not trusted.
+        if (false === $realFile || !is_file($realFile)) {
+            return null;
+        }
+
+        foreach (self::SERVER_ARCHIVE_DIRS as $relativeDir) {
+            $realDir = realpath($this->projectDir.'/'.$relativeDir);
+
+            if (false !== $realDir && \dirname($realFile) === $realDir) {
+                return $realFile;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The raw pointer content, restricted to a plausible "<dir>/<name>.zip" shape.
+     */
+    private function selectedRelativePath(): string|null
+    {
+        if (!is_file($this->selectionPath())) {
+            return null;
+        }
+
+        $relativePath = trim((string) file_get_contents($this->selectionPath()));
+
+        if ('' === $relativePath || $this->isUnsafeEntryName($relativePath) || !preg_match('/\.zip$/i', $relativePath)) {
+            return null;
+        }
+
+        return $relativePath;
+    }
+
+    /**
+     * Pointer file holding the project-relative path of the selected server archive.
+     */
+    private function selectionPath(): string
+    {
+        return $this->directory().'/selected-archive';
     }
 
     /**
@@ -345,8 +585,9 @@ final class RestoreArchiveStore
     private function discardArchive(): void
     {
         $fs = new Filesystem();
-        $fs->remove($this->archivePath());
-        $fs->remove($this->archivePath().'.name');
+        $fs->remove($this->uploadPath());
+        $fs->remove($this->uploadPath().'.name');
+        $fs->remove($this->selectionPath());
     }
 
     private function ensureDirectory(): void

@@ -2,7 +2,7 @@
 
 # Contao Backup Bundle
 
-Fügt im Backend unter **System** den Punkt **„Sicherung"** hinzu, mit drei Downloads
+Fügt im Backend unter **System** den Punkt **„Sicherung"** hinzu, mit vier Downloads
 (unter jedem Button steht, was genau enthalten ist):
 
 - **Datenbank und Dateien herunterladen** – ein ZIP mit dem Datenbank-Backup
@@ -10,8 +10,12 @@ Fügt im Backend unter **System** den Punkt **„Sicherung"** hinzu, mit drei Do
 - **Nur Dateien herunterladen** – die Dateien/Ordner als ZIP.
 - **Nur Datenbank herunterladen** – das Datenbank-Backup (Contaos eigenes Backup,
   gzip-komprimiertes SQL; wird zusätzlich in `var/backups` abgelegt).
+- **Installationspaket für den Contao Manager** – Datenbank und Dateien in einem Paket,
+  aus dem der Contao Manager bei der Einrichtung auf einem neuen Server in einem
+  Durchgang eine Kopie der Website macht (siehe
+  [Installationspaket](#installationspaket-für-den-contao-manager)).
 
-Jede der drei Sicherungen lässt sich wahlweise herunterladen **oder direkt auf dem
+Jede dieser Sicherungen lässt sich wahlweise herunterladen **oder direkt auf dem
 Server ablegen** (siehe [Auf dem Server speichern](#auf-dem-server-speichern-statt-herunterladen)) –
 auf Wunsch auch [automatisch per Cron](#automatische-voll-backups).
 
@@ -45,7 +49,7 @@ ein Backup von `vendor/` ist daher unnötig. Genauso bewusst ausgelassen: `var/`
 
 ## Auf dem Server speichern statt herunterladen
 
-Unter jedem der drei Buttons liegt ein zweiter: **„Auf dem Server speichern"**. Die
+Unter jedem Download-Button liegt ein zweiter: **„Auf dem Server speichern"**. Die
 Sicherung wandert dann nach `var/backups`, statt in den Browser zu fließen. Das ist der
 Gegenpart zur Auswahl beim Wiederherstellen und lohnt sich vor allem bei großen
 Installationen:
@@ -74,6 +78,80 @@ der am Ende zur Bestätigungsmeldung weiterleitet.
 
 Über den Karten steht außerdem, wie viele Archive derzeit auf dem Server liegen und wie
 viel Platz sie belegen – gelöscht werden sie unten im Abschnitt „Wiederherstellung".
+
+## Installationspaket für den Contao Manager
+
+Der vierte Download ist für eine **neue Installation auf einem anderen Server** gedacht –
+etwa für einen Umzug zu einem anderen Hosting oder für eine neue Website auf Basis einer
+vorbereiteten Vorlage. Das Paket hat den Aufbau eines Contao-Themes: Der
+[Contao Manager](https://docs.contao.org/5.x/manual/de/installation/contao-manager/) nimmt
+es bei der Einrichtung unter **„Theme für Contao"** entgegen und macht daraus in einem
+Durchgang eine Kopie dieser Website – Contao mit allen Erweiterungen, die Dateien und die
+Datenbank. Auf dem Zielserver ist vorab weder Contao noch dieses Bundle nötig.
+
+| Inhalt | Zweck |
+| --- | --- |
+| `composer.json` | Die Datei dieser Installation, ergänzt um Paketname und Version – beides verlangt der Manager von einem hochgeladenen Paket. Der `require`-Teil bleibt unverändert, die neue Installation erhält also dieselben Erweiterungen. |
+| `composer.lock` | Die exakten Versionen dieser Installation; der Hash ist an die ergänzte `composer.json` angepasst. |
+| `theme.xml` | Weist das Archiv als Theme aus – ohne sie lehnt der Manager das Paket ab. Sie landet nicht in der neuen Installation. |
+| `var/backups/backup__….sql.gz` | Das Datenbank-Backup. Der Manager bietet es nach der Installation zum Import an. |
+| `var/backups/backup-manifest.json` | Versionsangaben der Quelle, wie in den übrigen Archiven. |
+| `config/`, `contao/`, `files/`, `templates/` … | Dieselben Pfade wie im [Dateien-Backup](#enthaltene-pfade-dateien--und-voll-backup). |
+
+### Ablauf auf dem neuen Server
+
+1. Beim Hosting eine leere Datenbank anlegen und die Domain auf den Unterordner `public`
+   des Projektordners zeigen lassen.
+2. [`contao-manager.phar`](https://download.contao.org/contao-manager/stable/contao-manager.phar)
+   herunterladen und per FTP als `public/contao-manager.phar.php` ablegen.
+3. Eine `.env.local` mit dem Datenbank-Zugang in den Projektordner legen – **neben** den
+   Ordner `public`, nicht hinein. Dann fragt der Manager nicht nach dem Datenbank-Zugang.
+   Eine kommentierte Vorlage liegt unter [`docs/env.local.example`](docs/env.local.example);
+   nötig ist nur eine Zeile:
+
+   ```dotenv
+   DATABASE_URL=mysql://benutzer:passwort@localhost:3306/datenbankname
+   ```
+
+   Sonderzeichen in Benutzername und Passwort werden URL-kodiert angegeben, etwa `@` als
+   `%40` und `%` als `%25`. `APP_SECRET` muss nicht darin stehen: Contao erzeugt es bei der
+   Installation und ergänzt es selbst.
+4. Den Contao Manager im Browser aufrufen (`https://www.example.com/contao-manager.phar.php`),
+   ein Manager-Konto anlegen und bei der Einrichtung **„Theme für Contao"** wählen. Über
+   **„Theme-Datei (.cto/.zip) hochladen"** das Installationspaket auswählen und
+   **„Installieren"**.
+5. Im Schritt **„Datenbank-Import"** spielt **„Theme importieren"** das Backup ein.
+   **„Weiter"** und **„Datenbank prüfen"** ergänzen danach, was ein Backup bewusst nicht
+   enthält (die Tabellen für System-Log und Suchindex), und führen ausstehende
+   Migrationen aus.
+
+Danach ist die Website vollständig. Die Anmeldung im Backend erfolgt mit den Benutzern und
+Passwörtern der Quelle; einen weiteren Administrator verlangt der Manager nicht, weil er die
+vorhandenen erkennt.
+
+### Hinweise zum Installationspaket
+
+- **Versionen:** Mit dem Cloud-Resolver (Voreinstellung des Managers) führt der Manager bei
+  der Installation ein Composer-Update aus und installiert die neuesten Versionen, die die
+  `composer.json` zulässt – bei `contao/manager-bundle: 5.7.*` also weiterhin Contao 5.7.
+  Ohne Cloud-Resolver installiert er exakt die Versionen aus der `composer.lock`. Die
+  Auswahl der Contao-Version im Manager spielt keine Rolle; sie gilt nur für eine leere
+  Installation.
+- **Domain:** Ist im Startpunkt der Website eine Domain eingetragen und läuft die Kopie
+  unter einer anderen, ist sie dort anzupassen – sonst findet Contao keinen Startpunkt.
+- **Größe:** Der Manager liest das Paket beim Hochladen zunächst vollständig im Browser ein
+  und hält es auf dem Server zeitweise mehrfach vor (Upload, Kopie für Composer, entpackter
+  Stand). Bis zu einigen hundert MB ist das unkritisch; bei mehreren GB in `files/` ist eine
+  normale Contao-Installation mit anschließender
+  [Wiederherstellung](#wiederherstellung-restore) eines Voll-Backups der sicherere Weg.
+- **Lokale Pakete:** Erweiterungen, die im Contao Manager als ZIP hochgeladen wurden
+  (`contao-manager/packages`) oder aus einem Pfad-Repository stammen, sind nicht enthalten;
+  die Einrichtung bricht dann mit einem Composer-Fehler ab. Das Backend weist unter dem
+  Download darauf hin, sobald die Installation solche Pakete nutzt.
+- **`.env`-Dateien:** Dateien, deren Name mit einem Punkt beginnt, übernimmt der Manager
+  nicht aus einem Theme-Paket – deshalb gehört die `.env.local` per FTP auf den Server.
+- **Wiederherstellung:** Ein Installationspaket lässt sich auch wie ein Voll-Backup über
+  die [Wiederherstellung](#wiederherstellung-restore) dieses Bundles einspielen.
 
 ## Automatische Voll-Backups
 
@@ -247,7 +325,9 @@ Ziel-Installation (gleiche bzw. neuere Contao-Version) dieses Bundle installiere
 das Voll-ZIP hochladen, einspielen – fertig. `.env`-Werte (`DATABASE_URL`,
 `APP_SECRET`) sind bewusst nicht Teil des Backups und bleiben die der
 Ziel-Installation. Benutzer/Passwörter entsprechen danach dem Stand des Backups –
-gegebenenfalls neu anmelden (mit den Zugangsdaten aus dem Backup).
+gegebenenfalls neu anmelden (mit den Zugangsdaten aus dem Backup). Ganz ohne vorherige
+Contao-Installation gelingt ein Umzug mit dem
+[Installationspaket für den Contao Manager](#installationspaket-für-den-contao-manager).
 
 **Contao Manager:** Der Restore fasst den Manager nie an – nach einem Restore in
 derselben Installation funktioniert er unverändert. Er ist aber auch **nicht Teil

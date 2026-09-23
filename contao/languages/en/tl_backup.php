@@ -30,6 +30,23 @@ $GLOBALS['TL_LANG']['tl_backup']['storeDoneShort']   = '✓ Stored at %s (%s) �
 $GLOBALS['TL_LANG']['tl_backup']['storeFailed']      = 'Storing the backup on the server failed: %s';
 $GLOBALS['TL_LANG']['tl_backup']['storeFailedShort'] = '✗ Storing failed: %s';
 
+// Installation package for the Contao Manager (a new installation on another server)
+$GLOBALS['TL_LANG']['tl_backup']['downloadPackage']     = 'Installation package for the Contao Manager';
+$GLOBALS['TL_LANG']['tl_backup']['packageLead']         = 'For a new installation on another server: uploaded in the Contao Manager setup under "Contao Theme", it becomes a copy of this website in one pass – with all extensions, files and the database.';
+$GLOBALS['TL_LANG']['tl_backup']['packageDatabaseItem'] = 'all tables as an SQL backup in <code>var/backups</code>, offered for import by the Contao Manager';
+$GLOBALS['TL_LANG']['tl_backup']['packageManagerGroup'] = 'For the Contao Manager';
+$GLOBALS['TL_LANG']['tl_backup']['packageComposerItem'] = 'package name and version in <code>composer.json</code>';
+$GLOBALS['TL_LANG']['tl_backup']['packageThemeItem']    = '<code>theme.xml</code>, marking the archive as a theme';
+$GLOBALS['TL_LANG']['tl_backup']['packageDescription']  = 'Installation package of %s, created on %s';
+$GLOBALS['TL_LANG']['tl_backup']['packageLocalWarning'] = '<strong>Not included</strong> are extensions from local sources (uploaded in the Contao Manager or taken from a path repository): %s. They cannot be installed on a new server this way – the setup then stops with a Composer error.';
+$GLOBALS['TL_LANG']['tl_backup']['packageSteps']        = '<p><strong>On the new server:</strong></p><ol>'
+    .'<li>Hosting: an empty database, and the domain pointing to the <code>public</code> subfolder of the project directory.</li>'
+    .'<li>Via FTP: the <a href="https://download.contao.org/contao-manager/stable/contao-manager.phar" target="_blank" rel="noopener">contao-manager.phar</a> stored as <code>public/contao-manager.phar.php</code>. With a <code>.env.local</code> holding the database access next to it in the project directory (not in <code>public</code>), the Manager no longer asks for it: <code>DATABASE_URL=mysql://user:password@localhost:3306/database</code> – special characters in the password URL-encoded, e.g. <code>%40</code> for <code>@</code>.</li>'
+    .'<li>Contao Manager: after creating a Manager account, the setup offers "Contao Theme" – the package is uploaded there and installed with "Install".</li>'
+    .'<li>In the "Database Import" step, "Import theme database" loads the dump; "Continue" and "Check database" then add the tables a backup does not contain (such as the system log). Users and passwords are those of this website.</li>'
+    .'</ol>'
+    .'<p>If the website root has a domain set and the copy runs under another one, it needs adjusting there. On upload, the Contao Manager first reads the whole package in the browser and briefly keeps several copies on the server – for very large websites (several GB in <code>files</code>), a full backup followed by a restore is therefore the better route.</p>';
+
 // Short texts and section subtitles (the long versions sit behind "More about this")
 $GLOBALS['TL_LANG']['tl_backup']['moreInfo']          = 'More about this';
 $GLOBALS['TL_LANG']['tl_backup']['sectionAutoSub']    = 'What gets backed up regularly in the background';
@@ -98,7 +115,7 @@ $GLOBALS['TL_LANG']['tl_backup']['serverRestoreTitle']    = 'Restore a database 
 $GLOBALS['TL_LANG']['tl_backup']['serverRestoreExplain']  = 'These database backups live in var/backups (the "Download database only" button also stores a copy there).';
 $GLOBALS['TL_LANG']['tl_backup']['serverRestoreEmpty']    = 'There are no database backups in var/backups.';
 $GLOBALS['TL_LANG']['tl_backup']['uploadTitle']           = 'Upload a backup archive (ZIP) or select one on the server';
-$GLOBALS['TL_LANG']['tl_backup']['uploadExplain']         = 'A full or files backup (ZIP) downloaded with this bundle. The upload is sent in small chunks, so even huge archives work despite PHP upload limits.';
+$GLOBALS['TL_LANG']['tl_backup']['uploadExplain']         = 'A full or files backup or an installation package (ZIP) downloaded with this bundle. The upload is sent in small chunks, so even huge archives work despite PHP upload limits.';
 $GLOBALS['TL_LANG']['tl_backup']['uploadComposerHint']    = '<strong>Heads-up:</strong> If the archive contains <code>composer.json</code>/<code>composer.lock</code> and you restore them (e.g. when moving to another/fresh installation), a <strong>"composer install"</strong> is usually needed afterwards so the installed extensions exactly match the restored state. In the Contao Manager: <strong>System maintenance → Composer dependencies → "Run installer"</strong> (then reload the manager once). This is shown here again after the restore.';
 $GLOBALS['TL_LANG']['tl_backup']['uploadButton']          = 'Upload archive';
 $GLOBALS['TL_LANG']['tl_backup']['uploadBusy']            = 'Uploading …';

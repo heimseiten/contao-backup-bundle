@@ -74,12 +74,13 @@ class BackupModule extends BackendModule
             throw new ResponseException($downloader->createProbeResponse());
         }
 
-        if (\in_array($formSubmit, ['tl_backup_full', 'tl_backup_database', 'tl_backup_files'], true)) {
+        if (\in_array($formSubmit, ['tl_backup_full', 'tl_backup_database', 'tl_backup_files', 'tl_backup_package'], true)) {
             try {
                 $response = match ($formSubmit) {
                     'tl_backup_full' => $downloader->createFullResponse(),
                     'tl_backup_database' => $downloader->createDatabaseResponse(),
                     'tl_backup_files' => $downloader->createFilesResponse(),
+                    'tl_backup_package' => $downloader->createInstallPackageResponse($this->packageDescription()),
                 };
             } catch (\Throwable $e) {
                 // Make the reason for a failed backup easy to find (e.g. var/backups not
@@ -92,7 +93,7 @@ class BackupModule extends BackendModule
             throw new ResponseException($this->withDownloadSignal($response, $token));
         }
 
-        if (\in_array($formSubmit, ['tl_backup_store_full', 'tl_backup_store_files', 'tl_backup_store_database'], true)) {
+        if (\in_array($formSubmit, ['tl_backup_store_full', 'tl_backup_store_files', 'tl_backup_store_database', 'tl_backup_store_package'], true)) {
             $this->handleStoreOnServer($downloader, $formSubmit);
         }
 
@@ -125,10 +126,13 @@ class BackupModule extends BackendModule
     {
         $this->liftTimeLimit();
 
+        $description = $this->packageDescription();
+
         $store = static fn (callable|null $onProgress) => match ($formSubmit) {
             'tl_backup_store_full' => $downloader->storeArchive(true, $onProgress),
             'tl_backup_store_files' => $downloader->storeArchive(false, $onProgress),
             'tl_backup_store_database' => $downloader->storeDatabaseBackup(),
+            'tl_backup_store_package' => $downloader->storeInstallPackage($onProgress, $description),
         };
 
         if ('1' !== (string) Input::post('stream')) {
@@ -506,6 +510,13 @@ class BackupModule extends BackendModule
         $this->Template->fullLabel = $lang['downloadFull'];
         $this->Template->databaseLabel = $lang['downloadDatabase'];
         $this->Template->filesLabel = $lang['downloadFiles'];
+        $this->Template->packageLabel = $lang['downloadPackage'];
+
+        // Package names from composer.lock, rendered raw by the .html5 template.
+        $this->Template->localPackages = array_map(
+            static fn (string $name): string => StringUtil::specialchars($name),
+            $downloader->localPackages(),
+        );
         $this->Template->databaseItem = $lang['databaseItem'];
         $this->Template->databaseGroup = $lang['databaseGroup'];
         $this->Template->filesGroup = $lang['filesGroup'];
@@ -661,6 +672,19 @@ class BackupModule extends BackendModule
     private function projectDir(): string
     {
         return (string) System::getContainer()->getParameter('kernel.project_dir');
+    }
+
+    /**
+     * The description an installation package carries in its composer.json - where it came
+     * from and when, in the language of the back end.
+     */
+    private function packageDescription(): string
+    {
+        return \sprintf(
+            $this->loadLanguage()['packageDescription'],
+            (string) Environment::get('host'),
+            Date::parse(Config::get('datimFormat')),
+        );
     }
 
     /**

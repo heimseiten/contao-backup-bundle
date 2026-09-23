@@ -1,8 +1,8 @@
 {
     "name": "heimseiten/contao-backup-bundle",
     "type": "contao-bundle",
-    "description": "„Sicherung\" im Backend (unter System): Datenbank-Backup und alle relevanten Dateien/Ordner als ZIP herunterladen oder auf dem Server ablegen – und Backups wiederherstellen (aus var/backups, per ZIP-Upload oder aus einem auf dem Server liegenden Archiv).",
-    "keywords": ["contao", "backup", "restore", "download", "database", "files", "zip"],
+    "description": "„Sicherung\" im Backend (unter System): Datenbank-Backup und alle relevanten Dateien/Ordner als ZIP herunterladen oder auf dem Server ablegen, als Installationspaket für den Contao Manager exportieren – und Backups wiederherstellen (aus var/backups, per ZIP-Upload oder aus einem auf dem Server liegenden Archiv).",
+    "keywords": ["contao", "backup", "restore", "download", "database", "files", "zip", "contao-manager"],
     "license": "GPL-3.0-or-later",
     "authors": [
         {

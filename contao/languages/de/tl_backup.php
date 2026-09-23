@@ -30,6 +30,23 @@ $GLOBALS['TL_LANG']['tl_backup']['storeDoneShort']   = '✓ Gespeichert unter %s
 $GLOBALS['TL_LANG']['tl_backup']['storeFailed']      = 'Das Speichern auf dem Server ist fehlgeschlagen: %s';
 $GLOBALS['TL_LANG']['tl_backup']['storeFailedShort'] = '✗ Speichern fehlgeschlagen: %s';
 
+// Installationspaket für den Contao Manager (neue Installation auf einem anderen Server)
+$GLOBALS['TL_LANG']['tl_backup']['downloadPackage']     = 'Installationspaket für den Contao Manager';
+$GLOBALS['TL_LANG']['tl_backup']['packageLead']         = 'Für eine neue Installation auf einem anderen Server: Bei der Einrichtung des Contao Managers unter „Theme für Contao" hochgeladen, entsteht daraus in einem Durchgang eine Kopie dieser Website – mit allen Erweiterungen, Dateien und der Datenbank.';
+$GLOBALS['TL_LANG']['tl_backup']['packageDatabaseItem'] = 'alle Tabellen als SQL-Backup in <code>var/backups</code>, vom Contao Manager zum Import angeboten';
+$GLOBALS['TL_LANG']['tl_backup']['packageManagerGroup'] = 'Für den Contao Manager';
+$GLOBALS['TL_LANG']['tl_backup']['packageComposerItem'] = 'Paketname und Version in <code>composer.json</code>';
+$GLOBALS['TL_LANG']['tl_backup']['packageThemeItem']    = '<code>theme.xml</code>, die das Archiv als Theme ausweist';
+$GLOBALS['TL_LANG']['tl_backup']['packageDescription']  = 'Installationspaket von %s, erstellt am %s';
+$GLOBALS['TL_LANG']['tl_backup']['packageLocalWarning'] = '<strong>Nicht im Paket enthalten</strong> sind Erweiterungen aus lokalen Quellen (im Contao Manager hochgeladen oder als Pfad-Repository eingebunden): %s. Auf einem neuen Server lassen sie sich so nicht installieren – die Einrichtung bricht dann mit einem Composer-Fehler ab.';
+$GLOBALS['TL_LANG']['tl_backup']['packageSteps']        = '<p><strong>Ablauf auf dem neuen Server:</strong></p><ol>'
+    .'<li>Beim Hosting eine leere Datenbank anlegen und die Domain auf den Unterordner <code>public</code> des Projektordners zeigen lassen.</li>'
+    .'<li>Per FTP die <a href="https://download.contao.org/contao-manager/stable/contao-manager.phar" target="_blank" rel="noopener">contao-manager.phar</a> als <code>public/contao-manager.phar.php</code> ablegen. Liegt daneben im Projektordner (nicht in <code>public</code>) eine <code>.env.local</code> mit dem Datenbank-Zugang, fragt der Manager nicht mehr danach: <code>DATABASE_URL=mysql://benutzer:passwort@localhost:3306/datenbank</code> – Sonderzeichen im Passwort URL-kodiert, etwa <code>%40</code> für <code>@</code>.</li>'
+    .'<li>Den Contao Manager aufrufen und ein Manager-Konto anlegen; bei der Einrichtung „Theme für Contao" wählen, das Paket hochladen und „Installieren".</li>'
+    .'<li>Im Schritt „Datenbank-Import" spielt „Theme importieren" den Dump ein; „Weiter" und „Datenbank prüfen" ergänzen danach die Tabellen, die ein Backup nicht enthält (etwa das System-Log). Benutzer und Passwörter entsprechen dem Stand dieser Website.</li>'
+    .'</ol>'
+    .'<p>Ist im Startpunkt der Website eine Domain eingetragen und läuft die Kopie unter einer anderen, ist sie dort anzupassen. Beim Hochladen liest der Contao Manager das ganze Paket zunächst im Browser ein und hält es auf dem Server kurzzeitig mehrfach vor – für sehr große Websites (mehrere GB in <code>files</code>) eignet sich deshalb eher ein Voll-Backup mit anschließender Wiederherstellung.</p>';
+
 // Kurztexte und Abschnitts-Untertitel (die Langfassungen stecken hinter „Mehr dazu")
 $GLOBALS['TL_LANG']['tl_backup']['moreInfo']          = 'Mehr dazu';
 $GLOBALS['TL_LANG']['tl_backup']['sectionAutoSub']    = 'Was im Hintergrund regelmäßig gesichert wird';
@@ -98,7 +115,7 @@ $GLOBALS['TL_LANG']['tl_backup']['serverRestoreTitle']    = 'Datenbank-Sicherung
 $GLOBALS['TL_LANG']['tl_backup']['serverRestoreExplain']  = 'Diese Datenbank-Backups liegen in var/backups (dort legt auch der Download „Nur Datenbank" eine Kopie ab).';
 $GLOBALS['TL_LANG']['tl_backup']['serverRestoreEmpty']    = 'In var/backups liegen keine Datenbank-Backups.';
 $GLOBALS['TL_LANG']['tl_backup']['uploadTitle']           = 'Backup-Archiv (ZIP) hochladen oder vom Server auswählen';
-$GLOBALS['TL_LANG']['tl_backup']['uploadExplain']         = 'Ein mit diesem Bundle heruntergeladenes Voll- oder Dateien-Backup (ZIP). Der Upload erfolgt in kleinen Teilen, dadurch sind auch große Archive trotz PHP-Upload-Limits möglich.';
+$GLOBALS['TL_LANG']['tl_backup']['uploadExplain']         = 'Ein mit diesem Bundle heruntergeladenes Voll- oder Dateien-Backup bzw. Installationspaket (ZIP). Der Upload erfolgt in kleinen Teilen, dadurch sind auch große Archive trotz PHP-Upload-Limits möglich.';
 $GLOBALS['TL_LANG']['tl_backup']['uploadComposerHint']    = '<strong>Vorab-Hinweis:</strong> Enthält das Archiv <code>composer.json</code>/<code>composer.lock</code> und spielst du diese mit ein (z. B. beim Übertragen in eine andere/frische Installation), ist danach in der Regel ein <strong>„composer install"</strong> nötig, damit die installierten Erweiterungen exakt zum eingespielten Stand passen. Im Contao Manager: <strong>Systemwartung → Composer-Abhängigkeiten → „Installer ausführen"</strong> (danach den Manager einmal neu laden). Nach der Wiederherstellung wird dir das hier ebenfalls angezeigt.';
 $GLOBALS['TL_LANG']['tl_backup']['uploadButton']          = 'Archiv hochladen';
 $GLOBALS['TL_LANG']['tl_backup']['uploadBusy']            = 'Wird hochgeladen …';

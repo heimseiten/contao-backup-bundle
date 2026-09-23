@@ -18,9 +18,10 @@ use Symfony\Component\HttpFoundation\File\UploadedFile;
 final class RestoreArchiveStore
 {
     /**
-     * The archive entry name of the database dump: "database/<contao backup name>".
+     * The archive entry name of the database dump: "database/<contao backup name>" in a
+     * backup, "var/backups/<contao backup name>" in an installation package.
      */
-    private const DATABASE_ENTRY_REGEX = '@^database/[^/]*__(\d{14})\.sql(\.gz)?$@';
+    private const DATABASE_ENTRY_REGEX = '@^(?:database|var/backups)/[^/]*__(\d{14})\.sql(\.gz)?$@';
 
     /**
      * Project-relative directories that are scanned for archives placed on the server
@@ -474,8 +475,9 @@ final class RestoreArchiveStore
                 continue;
             }
 
-            // Version metadata of the source installation (never extracted to disk).
-            if (BackupDownloader::MANIFEST_NAME === $name) {
+            // Version metadata of the source installation (never extracted to disk). An
+            // installation package keeps it next to the dump instead of in the root.
+            if (\in_array($name, [BackupDownloader::MANIFEST_NAME, BackupDownloader::PACKAGE_DATABASE_DIR.'/'.BackupDownloader::MANIFEST_NAME], true)) {
                 // Read the manifest fully into memory - cap the size so a maliciously huge
                 // manifest entry cannot exhaust the memory limit.
                 if ((int) $stat['size'] <= self::MAX_MANIFEST_BYTES) {
@@ -486,7 +488,8 @@ final class RestoreArchiveStore
                 continue;
             }
 
-            // The database dump lives under database/ and keeps Contao's backup name.
+            // The database dump lives under database/ (var/backups/ in an installation
+            // package) and keeps Contao's backup name.
             if (preg_match(self::DATABASE_ENTRY_REGEX, $name, $matches)) {
                 // Should there be several dumps, use the newest one.
                 if (null === $databaseEntry || strcmp($name, $databaseEntry) > 0) {

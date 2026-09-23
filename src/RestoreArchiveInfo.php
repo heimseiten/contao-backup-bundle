@@ -16,7 +16,7 @@ final class RestoreArchiveInfo
         public readonly string $displayName,
         /** Size of the ZIP file in bytes. */
         public readonly int $archiveSize,
-        /** ZIP entry name of the database dump (e.g. "database/backup__20260101120000.sql.gz") or null. */
+        /** ZIP entry name of the database dump (e.g. "database/backup__20260101120000.sql.gz", in an installation package "var/backups/…") or null. */
         public readonly string|null $databaseEntry,
         /** Creation time parsed from the dump's file name, or null. */
         public readonly \DateTimeImmutable|null $databaseCreatedAt,

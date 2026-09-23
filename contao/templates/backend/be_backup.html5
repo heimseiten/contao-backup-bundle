@@ -4,7 +4,8 @@
 <?php $l = $this->lang; ?>
 
 <?php // ---- Section 1: everything that happens automatically (database + full backups) ---- ?>
-<details class="backup-section" data-backup-section="auto" open>
+<?php $autoActive = $this->settingsMessage || $this->settingsError || $this->autoMessage || $this->autoError; ?>
+<details class="backup-section" data-backup-section="auto"<?= $autoActive ? ' open data-force-open' : '' ?>>
   <summary class="backup-section-legend">
     <span class="backup-section-title"><?= $l['sectionAuto'] ?></span>
     <span class="backup-section-sub"><?= $l['sectionAutoSub'] ?></span>
@@ -136,7 +137,8 @@
 </details>
 
 <?php // ---- Section 2: manual backup downloads ---- ?>
-<details class="backup-section" data-backup-section="manual">
+<?php $manualActive = $this->storeError || $this->storedNotice; ?>
+<details class="backup-section" data-backup-section="manual"<?= $manualActive ? ' open data-force-open' : '' ?>>
   <summary class="backup-section-legend">
     <span class="backup-section-title"><?= $l['sectionManual'] ?></span>
     <span class="backup-section-sub"><?= $l['sectionManualSub'] ?></span>
@@ -171,12 +173,15 @@
 
   <?php
   // Reusable card: a download form, a progress bar (filled by JS) and the contents grouped
-  // under headings ("Datenbank", "Dateien und Ordner").
-  $card = function (string $formSubmit, string $title, array $groups) {
+  // under headings ("Datenbank", "Dateien und Ordner"), optionally with a lead text above
+  // the buttons, extra markup below the contents and a modifier class.
+  $card = function (string $formSubmit, string $title, array $groups, string $lead = '', string $footer = '', string $class = '') {
       $l = $this->lang;
       ?>
-      <div class="backup-card">
+      <div class="backup-card<?= '' !== $class ? ' '.$class : '' ?>">
         <h3 class="backup-card-title"><?= $title ?></h3>
+        <div class="backup-card-actions">
+        <?php if ('' !== $lead): ?><p class="backup-lead"><?= $lead ?></p><?php endif; ?>
         <form method="post" action="<?= $this->action ?>" data-turbo="false" data-backup-form>
           <input type="hidden" name="FORM_SUBMIT" value="<?= $formSubmit ?>">
           <input type="hidden" name="REQUEST_TOKEN" value="<?= $this->requestToken ?>">
@@ -202,6 +207,7 @@
           </div>
           <div class="backup-store-message" hidden></div>
         </form>
+        </div>
         <div class="backup-contents">
           <?php foreach ($groups as $group): ?>
             <?php if (\count($groups) > 1): ?><p class="backup-group-title"><?= $group['title'] ?></p><?php endif; ?>
@@ -212,6 +218,7 @@
             </ul>
           <?php endforeach; ?>
         </div>
+        <?php if ('' !== $footer): ?><div class="backup-card-footer"><?= $footer ?></div><?php endif; ?>
       </div>
       <?php
   };
@@ -220,6 +227,16 @@
   $fileItems = array_map(static fn ($p) => '<code>'.$p.'</code>', $this->filePaths);
   $databaseGroup = ['title' => $this->databaseGroup, 'items' => [$this->databaseItem]];
   $filesGroup = ['title' => $this->filesGroup, 'items' => $fileItems];
+
+  // The installation package: the same database and files, plus what the Contao Manager
+  // needs to accept the archive as a theme in the setup of a new installation.
+  $packageGroups = [
+      ['title' => $this->databaseGroup, 'items' => [$l['packageDatabaseItem']]],
+      $filesGroup,
+      ['title' => $l['packageManagerGroup'], 'items' => [$l['packageComposerItem'], $l['packageThemeItem']]],
+  ];
+  $packageFooter = ($this->localPackages ? '<p class="backup-note backup-note--warn">'.sprintf($l['packageLocalWarning'], '<code>'.implode('</code>, <code>', $this->localPackages).'</code>').'</p>' : '')
+      .'<details class="backup-more"><summary>'.$l['moreInfo'].'</summary><div class="backup-more-body">'.$l['packageSteps'].'</div></details>';
   ?>
 
   <?php // Only revealed by JavaScript in browsers that support the on-page (FSA) download. ?>
@@ -229,10 +246,14 @@
     <label><input type="radio" name="backup_dl_mode" value="js"> <?= $this->lang['dlModeJs'] ?></label>
   </div>
 
-  <div class="backup-grid backup-grid--three">
+  <div class="backup-grid backup-grid--downloads">
     <?php $card('tl_backup_full', $this->fullLabel, [$databaseGroup, $filesGroup]); ?>
     <?php $card('tl_backup_files', $this->filesLabel, [$filesGroup]); ?>
     <?php $card('tl_backup_database', $this->databaseLabel, [$databaseGroup]); ?>
+  </div>
+
+  <div class="backup-grid">
+    <?php $card('tl_backup_package', $this->packageLabel, $packageGroups, $l['packageLead'], $packageFooter, 'backup-card--wide'); ?>
   </div>
 
 </div>
@@ -516,7 +537,7 @@
     display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     gap: 1.2em; align-items: stretch; padding: 0 1.5em 1.5em;
   }
-  .backup-grid--three { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .backup-grid--downloads { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
   .backup-card {
     display: flex; flex-direction: column; padding: 1.1em 1.2em;
     border: 1px solid var(--border, #ddd); border-radius: var(--border-radius, 3px);
@@ -525,7 +546,25 @@
     margin: 0 0 .7em; padding-bottom: .5em; font-size: 1em; font-weight: 700;
     border-bottom: 1px solid var(--border, #ddd);
   }
+  /* Contao gives headings in a .tl_tbox a fixed height and no margin, so a title that wraps
+     would run into its border and the text below would stick to it - this selector
+     outranks Contao's rule. */
+  .backup-card .backup-card-title { height: auto; margin-bottom: .7em; }
   .backup-card .backup-contents { margin-top: 1em; }
+
+  /* The installation package serves another purpose (a new installation elsewhere) and says
+     more, so it gets a row of its own: actions on the left, contents on the right, notes
+     below - stacked again wherever the row gets too narrow for both. After the card rules,
+     so the direction wins over theirs. */
+  .backup-card--wide { flex-direction: row; flex-wrap: wrap; column-gap: 2em; align-items: flex-start; }
+  .backup-card--wide > :is(.backup-card-title, .backup-card-footer) { flex: 1 1 100%; }
+  .backup-card--wide > .backup-card-actions { flex: 1 1 18em; margin-bottom: 1em; }
+  .backup-card--wide > .backup-contents { flex: 2 1 22em; margin-top: 0; }
+  .backup-card-footer { margin-top: 1em; }
+  .backup-card-footer > .backup-more { margin-bottom: 0; }
+  .backup-card .backup-more-body ol { margin: .4em 0; padding-left: 1.3em; }
+  .backup-card .backup-more-body li + li { margin-top: .35em; }
+  .backup-card .backup-more-body code { overflow-wrap: anywhere; }
 
   /* Only the primary actions of a card span its full width - the smaller form buttons
      ("save settings", "run once") keep their natural size and sit side by side. */
@@ -736,6 +775,7 @@
     var t = stamp(), h = hostSlug();
     if (fs === 'tl_backup_database') { return 'database-backup_' + h + t + '.sql.gz'; }
     if (fs === 'tl_backup_files') { return 'files-backup_' + h + t + '.zip'; }
+    if (fs === 'tl_backup_package') { return 'install-package_' + h + t + '.zip'; }
     return 'full-backup_' + h + t + '.zip';
   }
   function pickerTypes(fs) {
@@ -944,9 +984,9 @@
 <script>
 (function () {
   // ---- Collapsible sections -----------------------------------------------------------
-  // Native <details>: by default only "automatic database backups" is open. A remembered
-  // per-browser choice wins, and a section with fresh restore results (data-force-open)
-  // always opens, so messages are never hidden.
+  // Native <details>: by default every section is closed. A remembered per-browser choice
+  // wins, and a section with fresh messages or restore results (data-force-open) always
+  // opens, so messages are never hidden.
   var SECTION_KEY = 'contao_backup_sections';
   var sectionsInitializing = true;
 

@@ -59,6 +59,32 @@ final class BackupDownloader
     public const STORE_DIR = 'var/backups';
 
     /**
+     * Where an installation package keeps the database dump and the manifest: Contao's own
+     * backup directory. The Contao Manager copies the package into the new installation and
+     * then offers every dump it finds there for import ("Theme importieren").
+     */
+    public const PACKAGE_DATABASE_DIR = 'var/backups';
+
+    /**
+     * File name prefix of an installation package - and the vendor part of the package name
+     * the Contao Manager shows for it, unless the composer.json has a name of its own.
+     */
+    public const PACKAGE_PREFIX = 'install-package';
+
+    /**
+     * An installation package writes adapted copies of these itself (name and version for
+     * the Contao Manager, the matching lock hash), so the originals are skipped.
+     */
+    private const PACKAGE_GENERATED_PATHS = ['composer.json', 'composer.lock'];
+
+    /**
+     * A project named in this vendor namespace still carries the name of the Contao project
+     * it was created from (contao/managed-edition, contao/contao-demo). As a package name it
+     * would pass for that original, so an installation package replaces it.
+     */
+    private const CONTAO_VENDOR = 'contao/';
+
+    /**
      * Free disk space required on top of the archive itself, so writing it cannot fill
      * the disk to the last byte.
      */
@@ -166,31 +192,38 @@ final class BackupDownloader
 
             $zip = $this->openZipStream();
             $zip->addFile(self::MANIFEST_NAME, $manifest);
-
-            $stream = $this->backupManager->readStream($backup);
-
-            if (\is_resource($stream)) {
-                // Pass the same exactSize the up-front simulation used, so a drift between
-                // the predicted and the actually streamed dump size fails loudly (ZipStream
-                // throws) instead of silently producing a ZIP that mismatches the announced
-                // Content-Length and gets truncated by the browser. Only when the size is
-                // known (>0) - matching computeZipSize(), which skips the length otherwise.
-                $dbSize = $backup->getSize();
-
-                if ($dbSize > 0) {
-                    $zip->addFileFromStream('database/'.$backup->getFilename(), $stream, exactSize: $dbSize);
-                } else {
-                    $zip->addFileFromStream('database/'.$backup->getFilename(), $stream);
-                }
-
-                fclose($stream);
-            }
-
+            $this->addDatabaseEntry($zip, $backup, 'database/'.$backup->getFilename());
             $this->addProjectFiles($zip);
             $zip->finish();
         });
 
         return $this->prepareZipResponse($response, $this->filename('full-backup', '.zip'), $size);
+    }
+
+    /**
+     * Installation package for the Contao Manager: the whole site - extensions, files and
+     * database - in the shape of a Contao theme package. Uploaded in the setup of a NEW
+     * installation ("Theme für Contao"), it makes the Manager install Contao together with
+     * every extension of this site in one pass and then offer the dump for import.
+     */
+    public function createInstallPackageResponse(string|null $description = null): Response
+    {
+        $this->liftTimeLimit();
+
+        // Everything that can fail (reading composer.json, the database backup) happens
+        // BEFORE streaming starts, so the user still gets a clean error page.
+        $package = $this->prepareInstallPackage($description);
+        $size = $this->computeInstallPackageSize($package);
+
+        $response = new StreamedResponse(function () use ($package): void {
+            $this->flushOutputBuffers();
+
+            $zip = $this->openZipStream();
+            $this->addInstallPackageEntries($zip, $package);
+            $zip->finish();
+        });
+
+        return $this->prepareZipResponse($response, $this->filename(self::PACKAGE_PREFIX, '.zip'), $size);
     }
 
     /**
@@ -225,11 +258,42 @@ final class BackupDownloader
         $manifest = $this->buildManifest();
         $size = $this->computeZipSize($backup, $manifest);
 
+        return $this->writeArchiveFile(
+            $directory,
+            $this->filename($prefix ?? ($withDatabase ? 'full-backup' : 'files-backup'), '.zip'),
+            $size,
+            $onProgress,
+            function (ZipStream $zip, callable $afterEachFile) use ($backup, $manifest): void {
+                $zip->addFile(self::MANIFEST_NAME, $manifest);
+
+                if (null !== $backup) {
+                    $this->addDatabaseEntry($zip, $backup, 'database/'.$backup->getFilename());
+                    $afterEachFile();
+                }
+
+                $this->addProjectFiles($zip, $afterEachFile);
+            },
+        );
+    }
+
+    /**
+     * Writes an archive into the store directory with the same streaming pass as a download,
+     * but into a file. It goes to "<name>.partial" first and is only renamed into place once
+     * complete, so a half-written archive can never be picked up as a restore source, and a
+     * failure (disk full, unreadable file) leaves nothing behind.
+     *
+     * @param callable(int, int|null):void|null         $onProgress see storeArchive()
+     * @param callable(ZipStream, callable():void):void $fill       adds the entries and calls the
+     *                                                              given function after each one
+     *
+     * @return array{name: string, path: string, size: int}
+     */
+    private function writeArchiveFile(string $directory, string $name, int|null $size, callable|null $onProgress, callable $fill): array
+    {
         if (null !== $size) {
             $this->assertEnoughDiskSpace($directory, $size);
         }
 
-        $name = $this->filename($prefix ?? ($withDatabase ? 'full-backup' : 'files-backup'), '.zip');
         $target = $directory.'/'.$name;
         $partial = $target.'.partial';
         $handle = fopen($partial, 'wb');
@@ -239,7 +303,7 @@ final class BackupDownloader
         }
 
         $lastReport = 0.0;
-        $report = static function (int $written) use ($onProgress, $size, &$lastReport): void {
+        $report = static function () use ($handle, $onProgress, $size, &$lastReport): void {
             if (null === $onProgress) {
                 return;
             }
@@ -251,7 +315,7 @@ final class BackupDownloader
             }
 
             $lastReport = $now;
-            $onProgress($written, $size);
+            $onProgress((int) ftell($handle), $size);
         };
 
         try {
@@ -263,29 +327,7 @@ final class BackupDownloader
                 defaultCompressionMethod: CompressionMethod::STORE,
             );
 
-            $zip->addFile(self::MANIFEST_NAME, $manifest);
-
-            if (null !== $backup) {
-                $stream = $this->backupManager->readStream($backup);
-
-                if (\is_resource($stream)) {
-                    $dbSize = $backup->getSize();
-
-                    if ($dbSize > 0) {
-                        $zip->addFileFromStream('database/'.$backup->getFilename(), $stream, exactSize: $dbSize);
-                    } else {
-                        $zip->addFileFromStream('database/'.$backup->getFilename(), $stream);
-                    }
-
-                    fclose($stream);
-                }
-
-                $report((int) ftell($handle));
-            }
-
-            $this->addProjectFiles($zip, static function () use ($handle, $report): void {
-                $report((int) ftell($handle));
-            });
+            $fill($zip, $report);
 
             $zip->finish();
             fclose($handle);
@@ -316,6 +358,34 @@ final class BackupDownloader
         );
 
         return ['name' => $name, 'path' => self::STORE_DIR.'/'.$name, 'size' => $written];
+    }
+
+    /**
+     * The installation package (see createInstallPackageResponse()), kept in var/backups
+     * instead of downloaded - written the same way storeArchive() writes a backup.
+     *
+     * @param callable(int, int|null):void|null $onProgress receives (bytes written, total or null),
+     *                                                      throttled to PROGRESS_INTERVAL
+     *
+     * @return array{name: string, path: string, size: int}
+     *
+     * @throws \RuntimeException if the directory is unusable or the disk is too full
+     */
+    public function storeInstallPackage(callable|null $onProgress = null, string|null $description = null): array
+    {
+        $this->liftTimeLimit();
+
+        $directory = $this->storeDirectory();
+        $package = $this->prepareInstallPackage($description);
+        $size = $this->computeInstallPackageSize($package);
+
+        return $this->writeArchiveFile(
+            $directory,
+            $this->filename(self::PACKAGE_PREFIX, '.zip'),
+            $size,
+            $onProgress,
+            fn (ZipStream $zip, callable $afterEachFile) => $this->addInstallPackageEntries($zip, $package, $afterEachFile),
+        );
     }
 
     /**
@@ -370,6 +440,37 @@ final class BackupDownloader
         usort($archives, static fn (array $a, array $b): int => $b['modified'] <=> $a['modified']);
 
         return $archives;
+    }
+
+    /**
+     * Packages of this installation that came from a local source - uploaded in the Contao
+     * Manager (contao-manager/packages) or taken from a path repository. An installation
+     * package does not carry them, so a new installation cannot get them from there.
+     *
+     * @return list<string>
+     */
+    public function localPackages(): array
+    {
+        $raw = @file_get_contents($this->projectDir.'/composer.lock');
+        $lock = false !== $raw ? json_decode($raw, true) : null;
+
+        if (!\is_array($lock)) {
+            return [];
+        }
+
+        $names = [];
+
+        foreach (['packages', 'packages-dev'] as $section) {
+            foreach ((array) ($lock[$section] ?? []) as $package) {
+                $dist = (array) ($package['dist'] ?? []);
+
+                if ('path' === ($dist['type'] ?? null) || str_contains((string) ($dist['url'] ?? ''), 'contao-manager/packages/')) {
+                    $names[] = (string) ($package['name'] ?? '');
+                }
+            }
+        }
+
+        return array_values(array_unique(array_filter($names)));
     }
 
     /**
@@ -493,7 +594,48 @@ final class BackupDownloader
      */
     private function computeZipSize(?Backup $backup, string $manifest): ?int
     {
+        return $this->simulateZipSize($backup, function (ZipStream $zip, $placeholder) use ($backup, $manifest): void {
+            $zip->addFile(self::MANIFEST_NAME, $manifest);
+
+            if (null !== $backup) {
+                $this->addDatabaseEntry($zip, $backup, 'database/'.$backup->getFilename(), $placeholder);
+            }
+
+            $this->addProjectFiles($zip);
+        });
+    }
+
+    /**
+     * The exact size of an installation package - see computeZipSize().
+     *
+     * @param array{backup: Backup, files: array<string, string>} $package
+     */
+    private function computeInstallPackageSize(array $package): ?int
+    {
+        return $this->simulateZipSize(
+            $package['backup'],
+            fn (ZipStream $zip, $placeholder) => $this->addInstallPackageEntries($zip, $package, null, $placeholder),
+        );
+    }
+
+    /**
+     * Runs ZipStream's simulate pass over the entries $fill adds and returns the byte size of
+     * the resulting archive, or null when it cannot be predicted (see computeZipSize()).
+     *
+     * @param callable(ZipStream, resource):void $fill receives the archive and a stand-in
+     *                                                 stream for the database dump
+     */
+    private function simulateZipSize(?Backup $backup, callable $fill): ?int
+    {
         if (!$this->simulationFitsInMemory()) {
+            return null;
+        }
+
+        // Without a reliable DB size we cannot predict the exact ZIP size; better no
+        // Content-Length (no progress bar) than a wrong one that truncates the download.
+        if (null !== $backup && $backup->getSize() <= 0) {
+            $this->logProgressBarDisabled('the database backup size could not be determined');
+
             return null;
         }
 
@@ -503,31 +645,18 @@ final class BackupDownloader
             return null;
         }
 
-        $placeholder = null;
+        // Stands in for the database dump: its size is known (getSize), so it is never read.
+        $placeholder = fopen('php://temp', 'rb');
+
+        if (!\is_resource($placeholder)) {
+            fclose($sink);
+
+            return null;
+        }
 
         try {
             $zip = $this->openZipStream(OperationMode::SIMULATE_LAX, $sink);
-            $zip->addFile(self::MANIFEST_NAME, $manifest);
-
-            if (null !== $backup) {
-                // Without a reliable DB size we cannot predict the exact ZIP size; better no
-                // Content-Length (no progress bar) than a wrong one that truncates the download.
-                if ($backup->getSize() <= 0) {
-                    $this->logProgressBarDisabled('the database backup size could not be determined');
-
-                    return null;
-                }
-
-                // The DB stream's size is known (getSize), so the placeholder is never read.
-                $placeholder = fopen('php://temp', 'rb');
-                $zip->addFileFromStream(
-                    'database/'.$backup->getFilename(),
-                    $placeholder,
-                    exactSize: $backup->getSize(),
-                );
-            }
-
-            $this->addProjectFiles($zip);
+            $fill($zip, $placeholder);
             $size = $zip->finish();
 
             if ($size <= 0) {
@@ -542,10 +671,7 @@ final class BackupDownloader
 
             return null;
         } finally {
-            if (\is_resource($placeholder)) {
-                fclose($placeholder);
-            }
-
+            fclose($placeholder);
             fclose($sink);
         }
     }
@@ -610,12 +736,249 @@ final class BackupDownloader
     }
 
     /**
+     * Packs the database dump under the given entry name. With a placeholder (the size
+     * simulation) nothing is read: the dump's known size is all ZipStream needs there.
+     *
+     * @param resource|null $placeholder
+     */
+    private function addDatabaseEntry(ZipStream $zip, Backup $backup, string $entryName, $placeholder = null): void
+    {
+        if (\is_resource($placeholder)) {
+            $zip->addFileFromStream($entryName, $placeholder, exactSize: $backup->getSize());
+
+            return;
+        }
+
+        $stream = $this->backupManager->readStream($backup);
+
+        if (!\is_resource($stream)) {
+            return;
+        }
+
+        // Pass the same exactSize the up-front simulation used, so a drift between the
+        // predicted and the actually streamed dump size fails loudly (ZipStream throws)
+        // instead of silently producing a ZIP that mismatches the announced Content-Length
+        // and gets truncated by the browser. Only when the size is known (>0) - matching
+        // simulateZipSize(), which skips the length otherwise.
+        $size = $backup->getSize();
+
+        if ($size > 0) {
+            $zip->addFileFromStream($entryName, $stream, exactSize: $size);
+        } else {
+            $zip->addFileFromStream($entryName, $stream);
+        }
+
+        fclose($stream);
+    }
+
+    /**
+     * The entries of an installation package: the generated files, the database dump in
+     * var/backups (where the Contao Manager looks for it) and the project files.
+     *
+     * @param array{backup: Backup, files: array<string, string>} $package
+     * @param callable():void|null                                $afterEachFile see addProjectFiles()
+     * @param resource|null                                       $placeholder   stand-in for the dump
+     *                                                                           in the size simulation
+     */
+    private function addInstallPackageEntries(ZipStream $zip, array $package, callable|null $afterEachFile = null, $placeholder = null): void
+    {
+        foreach ($package['files'] as $entryName => $content) {
+            $zip->addFile($entryName, $content);
+        }
+
+        $this->addDatabaseEntry($zip, $package['backup'], self::PACKAGE_DATABASE_DIR.'/'.$package['backup']->getFilename(), $placeholder);
+
+        if (null !== $afterEachFile) {
+            $afterEachFile();
+        }
+
+        $this->addProjectFiles($zip, $afterEachFile, self::PACKAGE_GENERATED_PATHS);
+    }
+
+    /**
+     * Everything of an installation package apart from the project files: the generated
+     * files and a fresh database backup - all of it built before a single byte is sent or
+     * written, so a failure still ends in a clean error message.
+     *
+     * @return array{backup: Backup, files: array<string, string>}
+     */
+    private function prepareInstallPackage(string|null $description): array
+    {
+        // composer.json first: if it cannot be read, no database backup is created in vain.
+        $composerJson = $this->packageComposerJson($description);
+        $composerLock = $this->packageComposerLock($composerJson);
+
+        // The small files go first - composer.json and theme.xml are what the Contao Manager
+        // looks for when the package is uploaded.
+        $files = ['composer.json' => $composerJson];
+
+        if (null !== $composerLock) {
+            $files['composer.lock'] = $composerLock;
+        }
+
+        $files['theme.xml'] = $this->packageThemeXml();
+        $files[self::PACKAGE_DATABASE_DIR.'/'.self::MANIFEST_NAME] = $this->buildManifest();
+
+        return ['backup' => $this->createDatabaseBackup(), 'files' => $files];
+    }
+
+    /**
+     * The composer.json of this installation, adapted to what the Contao Manager requires of
+     * an uploaded package: a name and a version. The require section - and with it the list
+     * of extensions the new installation gets - stays exactly as it is.
+     */
+    private function packageComposerJson(string|null $description): string
+    {
+        $raw = @file_get_contents($this->projectDir.'/composer.json');
+
+        // Decoded into objects rather than arrays, so that empty objects such as
+        // "require-dev": {} stay objects: the Contao Manager validates the uploaded file
+        // against Composer's schema.
+        $source = false !== $raw ? json_decode($raw) : null;
+
+        if (!$source instanceof \stdClass) {
+            throw new \RuntimeException('The composer.json of this installation could not be read.');
+        }
+
+        // A name of its own stays (together with its description); an inherited Contao name
+        // - or none at all - makes way for one derived from the host.
+        $ownName = \is_string($source->name ?? null) && !str_starts_with($source->name, self::CONTAO_VENDOR);
+        $slug = strtolower($this->hostSlug('-'));
+        $description ??= \sprintf('Installation package of %s, created on %s', '' !== $this->host() ? $this->host() : 'a Contao installation', date('Y-m-d H:i'));
+
+        // Name, description, type and version at the top, where a reader expects them. The
+        // version changes with every package, so the Contao Manager never mixes up two uploads.
+        $json = (object) [
+            'name' => $ownName ? $source->name : self::PACKAGE_PREFIX.'/'.('' !== $slug ? $slug : 'contao'),
+            'description' => $ownName && \is_string($source->description ?? null) ? $source->description : $description,
+            'type' => \is_string($source->type ?? null) ? $source->type : 'project',
+            'version' => date('Y.m.d.His'),
+        ];
+
+        foreach (get_object_vars($source) as $key => $value) {
+            if (!property_exists($json, $key)) {
+                $json->{$key} = $value;
+            }
+        }
+
+        // The Contao Manager writes the public directory of the new installation into the
+        // file right after unpacking. Stating the usual one here already keeps the lock hash
+        // below valid in the common case.
+        if (!isset($json->extra) || [] === $json->extra) {
+            $json->extra = new \stdClass();
+        }
+
+        if ($json->extra instanceof \stdClass) {
+            $json->extra->{'public-dir'} ??= 'public';
+        }
+
+        // Without contao-setup after the install, the new installation would lack its public
+        // directory - Contao's skeleton always has it, older files might not.
+        if (!isset($json->scripts) || !$json->scripts instanceof \stdClass) {
+            $json->scripts = new \stdClass();
+        }
+
+        foreach (['post-install-cmd', 'post-update-cmd'] as $event) {
+            $commands = $json->scripts->{$event} ?? [];
+            $commands = \is_array($commands) ? $commands : [$commands];
+
+            foreach ($commands as $command) {
+                if (\is_string($command) && str_contains($command, 'contao-setup')) {
+                    continue 2;
+                }
+            }
+
+            $commands[] = '@php vendor/bin/contao-setup';
+            $json->scripts->{$event} = $commands;
+        }
+
+        return json_encode($json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)."\n";
+    }
+
+    /**
+     * The composer.lock of this installation with the content hash of the adapted
+     * composer.json - otherwise Composer would call the lock file outdated. Everything
+     * else stays byte for byte.
+     */
+    private function packageComposerLock(string $composerJson): string|null
+    {
+        $raw = @file_get_contents($this->projectDir.'/composer.lock');
+
+        if (false === $raw) {
+            return null;
+        }
+
+        return preg_replace(
+            '/"content-hash":\s*"[0-9a-f]{32}"/',
+            '"content-hash": "'.self::composerContentHash($composerJson).'"',
+            $raw,
+            1,
+        ) ?? $raw;
+    }
+
+    /**
+     * Composer's content hash of a composer.json - Composer\Package\Locker::getContentHash(),
+     * reproduced here because Composer itself is not part of a Contao installation.
+     */
+    private static function composerContentHash(string $composerJson): string
+    {
+        $content = json_decode($composerJson, true);
+        $relevantKeys = ['name', 'version', 'require', 'require-dev', 'conflict', 'replace', 'provide', 'minimum-stability', 'prefer-stable', 'repositories', 'extra'];
+        $relevantContent = [];
+
+        foreach (array_intersect($relevantKeys, array_keys($content)) as $key) {
+            $relevantContent[$key] = $content[$key];
+        }
+
+        if (isset($content['config']['platform'])) {
+            $relevantContent['config']['platform'] = $content['config']['platform'];
+        }
+
+        ksort($relevantContent);
+
+        return md5((string) json_encode($relevantContent));
+    }
+
+    /**
+     * The theme.xml without which the Contao Manager does not accept an upload as a theme.
+     * The Manager merely reads a few fields from it and never imports it, so a minimal
+     * tl_theme row is all it takes.
+     */
+    private function packageThemeXml(): string
+    {
+        $field = static fn (string $name, string $value): string => \sprintf(
+            '      <field name="%s">%s</field>',
+            $name,
+            htmlspecialchars($value, ENT_XML1 | ENT_QUOTES, 'UTF-8'),
+        );
+
+        return implode("\n", [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            '<tables>',
+            '  <table name="tl_theme">',
+            '    <row>',
+            $field('tstamp', (string) time()),
+            $field('name', '' !== $this->host() ? $this->host() : 'Contao'),
+            $field('author', 'Contao Backup Bundle'),
+            '    </row>',
+            '  </table>',
+            '</tables>',
+            '',
+        ]);
+    }
+
+    /**
      * @param callable():void|null $afterEachFile called after every packed file, e.g. to
      *                                            report progress on a long-running store
+     * @param list<string>         $skip          local paths to leave out
      */
-    private function addProjectFiles(ZipStream $zip, callable|null $afterEachFile = null): void
+    private function addProjectFiles(ZipStream $zip, callable|null $afterEachFile = null, array $skip = []): void
     {
         foreach ($this->projectFiles() as $localPath => $absolutePath) {
+            if (\in_array($localPath, $skip, true)) {
+                continue;
+            }
+
             $zip->addFileFromPath($localPath, $absolutePath);
 
             if (null !== $afterEachFile) {
@@ -750,11 +1113,26 @@ final class BackupDownloader
      */
     private function filename(string $prefix, string $extension): string
     {
-        $host = $this->requestStack->getCurrentRequest()?->getHost() ?? '';
-        $host = preg_replace('/^www\./i', '', $host);
-        $slug = trim((string) preg_replace('/[^a-z0-9]+/i', '_', (string) $host), '_');
+        $slug = $this->hostSlug('_');
 
         return $prefix.'_'.('' !== $slug ? $slug.'_' : '').date('YmdHis').$extension;
+    }
+
+    /**
+     * The current host without a leading "www." - empty outside a request (e.g. in the cron).
+     */
+    private function host(): string
+    {
+        return (string) preg_replace('/^www\./i', '', $this->requestStack->getCurrentRequest()?->getHost() ?? '');
+    }
+
+    /**
+     * The host with every run of other characters than letters and digits turned into the
+     * separator ("example.com" -> "example_com").
+     */
+    private function hostSlug(string $separator): string
+    {
+        return trim((string) preg_replace('/[^a-z0-9]+/i', $separator, $this->host()), $separator);
     }
 
     private function liftTimeLimit(): void

@@ -104,30 +104,31 @@ Datenbank. Auf dem Zielserver ist vorab weder Contao noch dieses Bundle nötig.
    des Projektordners zeigen lassen.
 2. [`contao-manager.phar`](https://download.contao.org/contao-manager/stable/contao-manager.phar)
    herunterladen und per FTP als `public/contao-manager.phar.php` ablegen.
-3. Eine `.env.local` mit dem Datenbank-Zugang in den Projektordner legen – **neben** den
-   Ordner `public`, nicht hinein. Dann fragt der Manager nicht nach dem Datenbank-Zugang.
-   Eine kommentierte Vorlage liegt unter [`docs/env.local.example`](docs/env.local.example);
-   nötig ist nur eine Zeile:
-
-   ```dotenv
-   DATABASE_URL=mysql://benutzer:passwort@localhost:3306/datenbankname
-   ```
-
-   Sonderzeichen in Benutzername und Passwort werden URL-kodiert angegeben, etwa `@` als
-   `%40` und `%` als `%25`. `APP_SECRET` muss nicht darin stehen: Contao erzeugt es bei der
-   Installation und ergänzt es selbst.
-4. Den Contao Manager im Browser aufrufen (`https://www.example.com/contao-manager.phar.php`),
+3. Den Contao Manager im Browser aufrufen (`https://www.example.com/contao-manager.phar.php`),
    ein Manager-Konto anlegen und bei der Einrichtung **„Theme für Contao"** wählen. Über
    **„Theme-Datei (.cto/.zip) hochladen"** das Installationspaket auswählen und
    **„Installieren"**.
+4. Im Schritt **„Datenbank-Verbindung"** die Zugangsdaten der leeren Datenbank eintragen,
+   entweder als Datenbank-URL oder in den Feldern Benutzername, Passwort, Server und
+   Datenbankname. Der Manager prüft die Verbindung sofort, kodiert Sonderzeichen selbst und
+   legt die `.env.local` an; bei einem Fehler lässt sich die Eingabe wiederholen. Der
+   Datenbank-Server steht in der Hosting-Verwaltung und ist bei vielen Hostern **nicht**
+   `localhost`, sondern ein eigener Servername.
 5. Im Schritt **„Datenbank-Import"** spielt **„Theme importieren"** das Backup ein.
    **„Weiter"** und **„Datenbank prüfen"** ergänzen danach, was ein Backup bewusst nicht
-   enthält (die Tabellen für System-Log und Suchindex), und führen ausstehende
-   Migrationen aus.
+   enthält (die Tabellen für System-Log und Suchindex), holen übersprungene Symlinks nach und
+   führen ausstehende Migrationen aus.
 
 Danach ist die Website vollständig. Die Anmeldung im Backend erfolgt mit den Benutzern und
 Passwörtern der Quelle; einen weiteren Administrator verlangt der Manager nicht, weil er die
 vorhandenen erkennt.
+
+Die Zugangsdaten lassen sich auch vorab ablegen: eine `.env.local` mit einer Zeile
+`DATABASE_URL=mysql://benutzer:passwort@datenbank-server:3306/datenbankname` in den
+Projektordner legen, **neben** `public`, nicht hinein (Vorlage:
+[`docs/env.local.example`](docs/env.local.example)). Der Manager zeigt dann nur noch
+„Erfolgreich verbunden". Nötig ist das nicht und empfehlenswert auch nicht: Das Formular prüft
+die Eingabe sofort, und eine falsche Datei erschwert Fehlversuche (siehe die Hinweise unten).
 
 ### Hinweise zum Installationspaket
 
@@ -149,7 +150,25 @@ vorhandenen erkennt.
   die Einrichtung bricht dann mit einem Composer-Fehler ab. Das Backend weist unter dem
   Download darauf hin, sobald die Installation solche Pakete nutzt.
 - **`.env`-Dateien:** Dateien, deren Name mit einem Punkt beginnt, übernimmt der Manager
-  nicht aus einem Theme-Paket – deshalb gehört die `.env.local` per FTP auf den Server.
+  nicht aus einem Theme-Paket. Die `.env.local` entsteht deshalb auf dem Server, entweder
+  durch das Formular „Datenbank-Verbindung" des Managers oder per FTP (siehe oben).
+- **Einrichtung ohne Datenbank:** Der Contao Manager fragt die Datenbank erst nach der
+  Installation ab. Damit die Einrichtung (`contao-setup`) bis dahin nicht an Erweiterungen
+  scheitert, die beim Anlegen der Symlinks auf die Datenbank zugreifen (etwa der
+  TinyMCE-Plugin-Loader), überspringt das Bundle deren Symlinks, solange sich die Datenbank
+  nicht abfragen lässt, und holt sie bei **„Datenbank prüfen"** als eigene Migration nach. Das
+  setzt Version 1.3.1 oder neuer in der neuen Installation voraus; der Cloud-Resolver des
+  Managers installiert sie von selbst.
+- **Abbruch bei „contao-setup" mit `SQLSTATE[HY000] [2002]`:** Die Installation lief mit einer
+  älteren Version des Bundles (etwa weil der Cloud-Resolver aus war) und die Datenbank war nicht
+  erreichbar, weil die `.env.local` fehlt oder `localhost` nennt. Eine `.env.local` mit gültiger
+  `DATABASE_URL` anlegen und im Manager unter **Systemwartung → Composer-Abhängigkeiten →
+  „Installer ausführen"** die Einrichtung wiederholen.
+- **Meldung „Contao console does not support the necessary contao:migrate command …" im
+  Schritt „Datenbank-Verbindung":** Eine vorab angelegte `.env.local` mit falscher
+  `DATABASE_URL` steckt im Zwischenspeicher, und der Manager hat die URL nach einer
+  fehlgeschlagenen Prüfung wieder entfernt. Den Ordner `var/cache` per FTP löschen; danach
+  funktioniert das Formular wieder.
 - **Wiederherstellung:** Ein Installationspaket lässt sich auch wie ein Voll-Backup über
   die [Wiederherstellung](#wiederherstellung-restore) dieses Bundles einspielen.
 

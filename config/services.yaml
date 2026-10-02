@@ -49,3 +49,17 @@ services:
             $kernel: '@kernel'
             $projectDir: '%kernel.project_dir%'
             $logger: '@monolog.logger.contao'
+
+    # Lets the setup of a new installation (contao-setup) run without a database, so that the
+    # Contao Manager can ask for the access afterwards. The migration catches up on what was skipped.
+    Heimseiten\ContaoBackupBundle\EventListener\SymlinksWithoutDatabaseListener:
+        arguments:
+            $connection: '@database_connection'
+            $projectDir: '%kernel.project_dir%'
+
+    Heimseiten\ContaoBackupBundle\Migration\CompleteSymlinksMigration:
+        arguments:
+            $connection: '@database_connection'
+            $kernel: '@kernel'
+            $projectDir: '%kernel.project_dir%'
+            $webDir: '%contao.web_dir%'

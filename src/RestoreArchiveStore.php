@@ -159,6 +159,48 @@ final class RestoreArchiveStore
     }
 
     /**
+     * Like appendChunk(), for a chunk that arrives as a raw request body. The body is first
+     * written to a temporary file next to the partial upload, so an incomplete body never
+     * touches the partial upload.
+     *
+     * @param resource $body
+     *
+     * @return array{size: int}|null the new partial size, or null if fewer bytes than
+     *                               announced arrived (e.g. the body exceeded post_max_size)
+     *
+     * @throws RestoreException on an invalid id or an offset mismatch
+     */
+    public function appendChunkStream(string $uploadId, int $offset, $body, int $expectedLength): array|null
+    {
+        $this->ensureDirectory();
+
+        // partPath() validates the id, so the temporary name is safe as well.
+        $chunkFile = $this->partPath($uploadId).'.chunk';
+        $target = fopen($chunkFile, 'wb');
+
+        if (!\is_resource($body) || !\is_resource($target)) {
+            if (\is_resource($target)) {
+                fclose($target);
+            }
+
+            throw new RestoreException('Could not open the chunk for writing.');
+        }
+
+        try {
+            $written = (int) stream_copy_to_stream($body, $target);
+            fclose($target);
+
+            if ($expectedLength < 1 || $written !== $expectedLength) {
+                return null;
+            }
+
+            return $this->appendChunk($uploadId, $offset, $chunkFile);
+        } finally {
+            (new Filesystem())->remove($chunkFile);
+        }
+    }
+
+    /**
      * Turns the completed partial upload into the archive (after verifying the total size).
      */
     public function finalizeChunked(string $uploadId, int $expectedSize, string $originalName): void
@@ -203,7 +245,7 @@ final class RestoreArchiveStore
         $fs->remove($this->stagingDir());
         $fs->remove($this->databaseWorkPath());
 
-        foreach (glob($this->directory().'/upload-*.part') ?: [] as $part) {
+        foreach (glob($this->directory().'/upload-*.part*') ?: [] as $part) {
             $fs->remove($part);
         }
     }
@@ -213,7 +255,7 @@ final class RestoreArchiveStore
      */
     public function collectGarbage(): void
     {
-        foreach (glob($this->directory().'/upload-*.part') ?: [] as $part) {
+        foreach (glob($this->directory().'/upload-*.part*') ?: [] as $part) {
             if (is_file($part) && filemtime($part) < time() - 86400) {
                 (new Filesystem())->remove($part);
             }

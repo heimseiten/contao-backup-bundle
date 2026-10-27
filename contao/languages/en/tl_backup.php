@@ -123,6 +123,8 @@ $GLOBALS['TL_LANG']['tl_backup']['uploadBusy']            = 'Uploading …';
 $GLOBALS['TL_LANG']['tl_backup']['uploadNotZip']          = 'Please upload a ZIP file.';
 $GLOBALS['TL_LANG']['tl_backup']['uploadFailed']          = 'The upload failed. Without JavaScript the server\'s PHP upload limits apply (%s).';
 $GLOBALS['TL_LANG']['tl_backup']['uploadError']           = 'Upload failed: %s';
+$GLOBALS['TL_LANG']['tl_backup']['uploadBlocked']         = 'The server rejected the upload (HTTP %s), even in the smallest chunks. Usually a firewall of the hosting provider is behind this (e.g. mod_security). Workaround: transfer the archive to var/backups per FTP and select it below under "Select an archive on the server", or ask the hosting provider to relax the firewall for the Contao back end.';
+$GLOBALS['TL_LANG']['tl_backup']['uploadUnexpected']      = 'Unexpected server response (HTTP %s). The session may have expired – please reload the page and try again.';
 
 // Selecting an archive that is already on the server (instead of uploading one)
 $GLOBALS['TL_LANG']['tl_backup']['orLabel']               = 'or';

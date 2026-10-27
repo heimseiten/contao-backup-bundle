@@ -19,8 +19,10 @@ use Contao\System;
 use Symfony\Component\HttpFoundation\Cookie;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\Security\Csrf\CsrfToken;
 
 /**
  * Backend module "Sicherung": download a full backup of the database and/or the
@@ -67,6 +69,13 @@ class BackupModule extends BackendModule
         $formSubmit = (string) Input::post('FORM_SUBMIT');
 
         $store->collectGarbage();
+
+        // Upload chunk sent as a raw binary body (no form fields, see handleRawChunkUpload()).
+        $request = System::getContainer()->get('request_stack')->getCurrentRequest();
+
+        if (null !== $request && 'POST' === $request->getMethod() && 'chunk' === $request->headers->get('X-Backup-Upload')) {
+            throw new ResponseException($this->handleRawChunkUpload($store, $request));
+        }
 
         // Tiny streamed probe so the front end can detect a compressing proxy (which strips the
         // size headers) before any real download and show a hint.
@@ -201,9 +210,10 @@ class BackupModule extends BackendModule
         try {
             $chunk = $request?->files->get('chunk');
 
-            // An invalid/missing file usually means the chunk exceeded a server limit.
+            // An invalid/missing file usually means the chunk exceeded a server limit. 413
+            // tells the JavaScript to retry the same chunk in a smaller size.
             if (!$chunk instanceof UploadedFile || !$chunk->isValid()) {
-                return new JsonResponse(['error' => 'The chunk did not arrive (server upload limits?). Please retry.'], 400);
+                return new JsonResponse(['error' => 'The chunk did not arrive (server upload limits?). Please retry.'], 413);
             }
 
             $state = $store->appendChunk(
@@ -217,6 +227,56 @@ class BackupModule extends BackendModule
                     (string) $request->request->get('upload_id'),
                     (int) $request->request->get('total'),
                     (string) $request->request->get('name'),
+                );
+            }
+
+            return new JsonResponse(['ok' => true, 'size' => $state['size']]);
+        } catch (RestoreException $e) {
+            return new JsonResponse(['error' => $e->getMessage()], 409);
+        }
+    }
+
+    /**
+     * Receives one upload chunk sent as a raw binary body (Content-Type
+     * application/octet-stream) with its metadata in X-Backup-* headers.
+     *
+     * Web application firewalls on shared hosting (mod_security and the like) check
+     * multipart form uploads strictly and reject some binary ZIP parts with a 403. A raw
+     * body of an unknown type is usually passed through unparsed, so this is the
+     * JavaScript's first choice; the multipart route remains as a fallback.
+     *
+     * Contao only checks the request token for form-like content types (others need a
+     * CORS preflight anyway), so the token is checked here explicitly.
+     */
+    private function handleRawChunkUpload(RestoreArchiveStore $store, Request $request): Response
+    {
+        $this->liftTimeLimit();
+
+        $container = System::getContainer();
+        $token = new CsrfToken((string) $container->getParameter('contao.csrf_token_name'), (string) $request->headers->get('X-Backup-Token'));
+
+        if (!$container->get('contao.csrf.token_manager')->isTokenValid($token)) {
+            return new JsonResponse(['error' => 'Invalid request token - please reload the page and try again.'], 400);
+        }
+
+        $uploadId = (string) $request->headers->get('X-Backup-Upload-Id');
+        $length = (int) $request->headers->get('X-Backup-Length');
+
+        try {
+            $body = $request->getContent(true);
+            $state = $store->appendChunkStream($uploadId, (int) $request->headers->get('X-Backup-Offset'), $body, $length);
+
+            if (null === $state) {
+                // PHP discards a body above post_max_size, so the chunk arrived incomplete.
+                // 413 tells the JavaScript to retry the same chunk in a smaller size.
+                return new JsonResponse(['error' => 'The chunk did not arrive completely (server upload limits?).'], 413);
+            }
+
+            if ('1' === $request->headers->get('X-Backup-Last')) {
+                $store->finalizeChunked(
+                    $uploadId,
+                    (int) $request->headers->get('X-Backup-Total'),
+                    rawurldecode((string) $request->headers->get('X-Backup-Name')),
                 );
             }
 

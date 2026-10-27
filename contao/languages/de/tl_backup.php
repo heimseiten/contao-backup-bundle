@@ -123,6 +123,8 @@ $GLOBALS['TL_LANG']['tl_backup']['uploadBusy']            = 'Wird hochgeladen �
 $GLOBALS['TL_LANG']['tl_backup']['uploadNotZip']          = 'Bitte eine ZIP-Datei hochladen.';
 $GLOBALS['TL_LANG']['tl_backup']['uploadFailed']          = 'Der Upload ist fehlgeschlagen. Ohne JavaScript gelten die PHP-Upload-Limits des Servers (%s).';
 $GLOBALS['TL_LANG']['tl_backup']['uploadError']           = 'Upload fehlgeschlagen: %s';
+$GLOBALS['TL_LANG']['tl_backup']['uploadBlocked']         = 'Der Server hat das Hochladen abgelehnt (HTTP %s), auch in kleinsten Teilstücken. Meist steckt eine Firewall des Hosters dahinter (z. B. mod_security). Abhilfe: das Archiv per FTP nach var/backups übertragen und unten unter „Archiv vom Server auswählen“ wählen, oder den Hoster bitten, die Firewall für das Contao-Backend zu lockern.';
+$GLOBALS['TL_LANG']['tl_backup']['uploadUnexpected']      = 'Unerwartete Antwort des Servers (HTTP %s). Möglicherweise ist die Sitzung abgelaufen – bitte die Seite neu laden und erneut versuchen.';
 
 // Archiv vom Server auswählen (statt hochladen)
 $GLOBALS['TL_LANG']['tl_backup']['orLabel']               = 'oder';

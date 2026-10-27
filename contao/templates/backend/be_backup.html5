@@ -1023,6 +1023,8 @@
   // ---- Restore section ----------------------------------------------------------------
   var UPLOAD_BUSY = <?= json_encode($this->lang['uploadBusy']) ?>;
   var UPLOAD_ERROR = <?= json_encode($this->lang['uploadError']) ?>;
+  var UPLOAD_BLOCKED = <?= json_encode($this->lang['uploadBlocked']) ?>;
+  var UPLOAD_UNEXPECTED = <?= json_encode($this->lang['uploadUnexpected']) ?>;
   var RESTORE_BUSY = <?= json_encode($this->lang['restoreBusy']) ?>;
 
   // Dieselben Einheiten und Trennzeichen wie Contaos System::getReadableSize() auf der
@@ -1258,9 +1260,33 @@
     var action = uploadForm.getAttribute('action');
     var token = uploadForm.querySelector('input[name="REQUEST_TOKEN"]').value;
 
-    function sendChunk(offset, attempt) {
-      var end = Math.min(offset + CHUNK, file.size);
-      var isLast = end >= file.size;
+    // Hosting firewalls (mod_security and the like) reject some uploads with 403, and some
+    // servers cap the request size below the PHP limits (413). Each chunk is therefore
+    // first sent as a raw binary body (rarely inspected); a 403/413 halves the chunk size
+    // down to MIN_CHUNK, and if even that is rejected, the multipart form upload is tried.
+    var MIN_CHUNK = 262144;
+    var chunkSize = CHUNK;
+    var raw = true;
+
+    function chunkRequest(offset, end, isLast) {
+      if (raw) {
+        return fetch(action, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            'X-Backup-Upload': 'chunk',
+            'X-Backup-Token': token,
+            'X-Backup-Upload-Id': id,
+            'X-Backup-Offset': String(offset),
+            'X-Backup-Length': String(end - offset),
+            'X-Backup-Total': String(file.size),
+            'X-Backup-Last': isLast ? '1' : '0',
+            'X-Backup-Name': encodeURIComponent(file.name)
+          },
+          body: file.slice(offset, end)
+        });
+      }
 
       var fd = new FormData();
       fd.append('FORM_SUBMIT', 'tl_backup_upload_chunk');
@@ -1272,8 +1298,22 @@
       fd.append('name', file.name);
       fd.append('chunk', file.slice(offset, end), 'chunk.bin');
 
-      return fetch(action, { method: 'POST', body: fd, credentials: 'same-origin' })
+      return fetch(action, { method: 'POST', body: fd, credentials: 'same-origin' });
+    }
+
+    function sendChunk(offset, attempt) {
+      var end = Math.min(offset + chunkSize, file.size);
+      var isLast = end >= file.size;
+
+      return chunkRequest(offset, end, isLast)
         .then(function (r) {
+          if (403 === r.status || 413 === r.status) {
+            throw { rejected: r.status };
+          }
+          // Anything but JSON (e.g. the login page after an expired session) is final.
+          if (-1 === (r.headers.get('Content-Type') || '').indexOf('json')) {
+            throw { fatal: true, message: UPLOAD_UNEXPECTED.replace('%s', String(r.status)) };
+          }
           if (!r.ok) {
             return r.json().catch(function () { return {}; }).then(function (data) {
               throw { fatal: r.status < 500, message: data.error || ('HTTP ' + r.status) };
@@ -1286,8 +1326,18 @@
           bar.value = pct;
           ptext.textContent = pct + ' % · ' + fmt(end) + ' / ' + fmt(file.size);
           if (!isLast) { return sendChunk(end, 0); }
-        })
-        .catch(function (err) {
+        }, function (err) {
+          if (err && err.rejected) {
+            if (chunkSize > MIN_CHUNK) {
+              chunkSize = Math.max(MIN_CHUNK, Math.floor(chunkSize / 2));
+              return sendChunk(offset, 0);
+            }
+            if (raw) {
+              raw = false;
+              return sendChunk(offset, 0);
+            }
+            throw { fatal: true, message: UPLOAD_BLOCKED.replace('%s', String(err.rejected)) };
+          }
           // Network hiccups are retried (a re-sent complete chunk is acknowledged
           // idempotently by the server); real server rejections are not.
           if (!err || err.fatal || attempt >= 2) { throw err; }

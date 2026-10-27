@@ -250,7 +250,11 @@ jeweils mit Optionen und einer Bestätigung durch Eintippen von **WIEDERHERSTELL
   Dateien-Pfade), und was eingespielt werden soll, ist per Checkbox wählbar:
   - **Hochladen** über den Browser. Der Upload läuft in **kleinen Teilstücken**
     (Chunks unterhalb von `upload_max_filesize`/`post_max_size`), dadurch funktionieren
-    auch mehrere GB große Archive trotz PHP-Upload-Limits.
+    auch mehrere GB große Archive trotz PHP-Upload-Limits. Die Teilstücke gehen als
+    reine Binärdaten an den Server, nicht als Formular-Upload; Firewalls im Hosting
+    (z. B. mod_security) prüfen solche Anfragen meist nicht. Lehnt der Server ein
+    Teilstück trotzdem ab (HTTP 403 oder 413), wird es halbiert bis hinunter auf
+    256 KB erneut gesendet, zuletzt als klassischer Formular-Upload.
   - **Auswählen**, wenn das Archiv bereits auf dem Server liegt (siehe unten).
 
 ### Archiv vom Server auswählen (ohne Upload)

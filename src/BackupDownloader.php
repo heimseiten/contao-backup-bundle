@@ -601,7 +601,7 @@ final class BackupDownloader
                 $this->addDatabaseEntry($zip, $backup, 'database/'.$backup->getFilename(), $placeholder);
             }
 
-            $this->addProjectFiles($zip);
+            $this->addProjectFiles($zip, simulate: true);
         });
     }
 
@@ -792,7 +792,7 @@ final class BackupDownloader
             $afterEachFile();
         }
 
-        $this->addProjectFiles($zip, $afterEachFile, self::PACKAGE_GENERATED_PATHS);
+        $this->addProjectFiles($zip, $afterEachFile, self::PACKAGE_GENERATED_PATHS, null !== $placeholder);
     }
 
     /**
@@ -971,15 +971,28 @@ final class BackupDownloader
      * @param callable():void|null $afterEachFile called after every packed file, e.g. to
      *                                            report progress on a long-running store
      * @param list<string>         $skip          local paths to leave out
+     * @param bool                 $simulate      size simulation: hand ZipStream the size from
+     *                                            filesize() so it never opens the file. Without
+     *                                            it the simulate pass opens every file to fstat()
+     *                                            it and keeps the handle until finish() - on a site
+     *                                            with more files than the open-files limit (often
+     *                                            1024) the download then broke off halfway with
+     *                                            "Too many open files" and a ZIP without a
+     *                                            central directory (unusable, ZipArchive code 19).
      */
-    private function addProjectFiles(ZipStream $zip, callable|null $afterEachFile = null, array $skip = []): void
+    private function addProjectFiles(ZipStream $zip, callable|null $afterEachFile = null, array $skip = [], bool $simulate = false): void
     {
         foreach ($this->projectFiles() as $localPath => $absolutePath) {
             if (\in_array($localPath, $skip, true)) {
                 continue;
             }
 
-            $zip->addFileFromPath($localPath, $absolutePath);
+            if ($simulate) {
+                $size = filesize($absolutePath);
+                $zip->addFileFromPath($localPath, $absolutePath, exactSize: false === $size ? null : $size);
+            } else {
+                $zip->addFileFromPath($localPath, $absolutePath);
+            }
 
             if (null !== $afterEachFile) {
                 $afterEachFile();

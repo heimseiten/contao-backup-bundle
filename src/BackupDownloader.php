@@ -861,6 +861,8 @@ final class BackupDownloader
             }
         }
 
+        self::removeEmptyObjects($json);
+
         // The Contao Manager writes the public directory of the new installation into the
         // file right after unpacking. Stating the usual one here already keeps the lock hash
         // below valid in the common case.
@@ -893,6 +895,37 @@ final class BackupDownloader
         }
 
         return json_encode($json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)."\n";
+    }
+
+    /**
+     * The Contao Manager decodes an uploaded composer.json into PHP arrays and encodes it
+     * again before the schema check, which turns every empty object into an empty array:
+     * "config": {"platform": {}} then fails with "Array value found, but an object is
+     * required". An empty object means the same to Composer as a missing key, so it is
+     * left out - except for allow-plugins, where {} means "no plugin allowed" and a missing
+     * key does not; false says the same and survives the round trip.
+     */
+    private static function removeEmptyObjects(\stdClass $object, string $path = ''): void
+    {
+        foreach (get_object_vars($object) as $key => $value) {
+            if ($value instanceof \stdClass) {
+                self::removeEmptyObjects($value, $path.'/'.$key);
+
+                if ([] === get_object_vars($value)) {
+                    if ('/config/allow-plugins' === $path.'/'.$key) {
+                        $object->{$key} = false;
+                    } else {
+                        unset($object->{$key});
+                    }
+                }
+            } elseif (\is_array($value)) {
+                foreach ($value as $item) {
+                    if ($item instanceof \stdClass) {
+                        self::removeEmptyObjects($item, $path.'/'.$key.'/*');
+                    }
+                }
+            }
+        }
     }
 
     /**

@@ -142,9 +142,14 @@ die Eingabe sofort, und eine falsche Datei erschwert Fehlversuche (siehe die Hin
   unter einer anderen, ist sie dort anzupassen – sonst findet Contao keinen Startpunkt.
 - **Größe:** Der Manager liest das Paket beim Hochladen zunächst vollständig im Browser ein
   und hält es auf dem Server zeitweise mehrfach vor (Upload, Kopie für Composer, entpackter
-  Stand). Bis zu einigen hundert MB ist das unkritisch; bei mehreren GB in `files/` ist eine
-  normale Contao-Installation mit anschließender
-  [Wiederherstellung](#wiederherstellung-restore) eines Voll-Backups der sicherere Weg.
+  Stand). Vor allem aber kopiert Composer bei `create-project` ein lokales Paket per
+  `file_get_contents()`, also **vollständig in den Arbeitsspeicher** – `memory_limit=-1`
+  hilft dabei nicht, wenn das Hosting den Speicher je Prozess begrenzt. Ein Paket von
+  knapp 900 MB brach bei einem Shared Hosting so mit `mmap() failed: [12] Cannot allocate
+  memory` / `Out of memory` ab. Bis etwa 200–300 MB ist das Paket meist unkritisch; bei
+  größeren `files/`-Ordnern ist eine normale Contao-Installation mit anschließender
+  [Wiederherstellung](#wiederherstellung-restore) eines Voll-Backups der sichere Weg (das
+  Archiv per FTP nach `var/backups` legen und im Modul auswählen).
 - **Lokale Pakete:** Erweiterungen, die im Contao Manager als ZIP hochgeladen wurden
   (`contao-manager/packages`) oder aus einem Pfad-Repository stammen, sind nicht enthalten;
   die Einrichtung bricht dann mit einem Composer-Fehler ab. Das Backend weist unter dem

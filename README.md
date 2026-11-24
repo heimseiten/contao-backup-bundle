@@ -31,6 +31,7 @@ bereits auf dem Server liegt (siehe [Wiederherstellung](#wiederherstellung-resto
 | `config/` | App-Konfiguration (Symfony/Bundles) |
 | `contao/` | DCA, Templates, Sprachen … |
 | `src/` | Eigener Anwendungscode (App-Namespace) |
+| `resources/` | Dateien, die der eigene Code liest (z. B. PDF-Vorlagen, Twig für PDFs) |
 | `templates/` | Globale Templates |
 | `translations/` | Eigene Symfony-Übersetzungen |
 | `migrations/` | Eigene Doctrine-Migrationen |

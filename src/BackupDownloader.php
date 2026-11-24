@@ -38,6 +38,7 @@ final class BackupDownloader
         'config',
         'contao',
         'src',
+        'resources',
         'templates',
         'translations',
         'migrations',
